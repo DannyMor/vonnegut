@@ -12,6 +12,19 @@ def _get_adapter_factory(request: Request):
     return request.app.state.adapter_factory
 
 
+@router.get("/connections/{conn_id}/databases")
+async def list_databases(conn_id: str, request: Request):
+    manager = _get_manager(request)
+    conn = await manager.get(conn_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    adapter = await _get_adapter_factory(request).create(conn)
+    try:
+        return await adapter.fetch_databases()
+    finally:
+        await adapter.disconnect()
+
+
 @router.get("/connections/{conn_id}/tables")
 async def list_tables(conn_id: str, request: Request):
     manager = _get_manager(request)

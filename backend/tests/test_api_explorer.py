@@ -90,3 +90,19 @@ async def test_get_table_sample(client):
 async def test_tables_nonexistent_connection(client):
     resp = await client.get("/api/v1/connections/nonexistent/tables")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_databases(client, test_adapter):
+    test_adapter.add_database("analytics")
+    test_adapter.add_database("production")
+    conn_id = await _create_connection(client)
+    resp = await client.get(f"/api/v1/connections/{conn_id}/databases")
+    assert resp.status_code == 200
+    assert resp.json() == ["analytics", "production"]
+
+
+@pytest.mark.asyncio
+async def test_databases_nonexistent_connection(client):
+    resp = await client.get("/api/v1/connections/nonexistent/databases")
+    assert resp.status_code == 404
