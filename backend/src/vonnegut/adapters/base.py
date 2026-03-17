@@ -13,7 +13,7 @@ class ColumnSchema:
 
 class DatabaseAdapter(ABC):
     """Interface for all database adapters. Implementations must handle
-    connection lifecycle and provide schema introspection + data access."""
+     the connection lifecycle and provide schema introspection and data access."""
 
     @abstractmethod
     async def connect(self) -> None:
@@ -25,11 +25,11 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def execute(self, query: str, params: tuple = ()) -> list[dict[str, Any]]:
-        """Execute a query and return rows as list of dicts."""
+        """Execute a query and return rows as a list of dicts."""
 
     @abstractmethod
     async def fetch_tables(self) -> list[str]:
-        """Return list of table names in the database."""
+        """Return the list of table names in the database."""
 
     @abstractmethod
     async def fetch_schema(self, table: str) -> list[ColumnSchema]:
@@ -38,6 +38,10 @@ class DatabaseAdapter(ABC):
     @abstractmethod
     async def fetch_sample(self, table: str, rows: int = 10) -> list[dict[str, Any]]:
         """Return sample rows from a table."""
+
+    @abstractmethod
+    async def fetch_databases(self) -> list[str]:
+        """Return list of database names on this server."""
 
 
 class AdapterFactory(Protocol):

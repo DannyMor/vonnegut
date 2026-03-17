@@ -61,3 +61,10 @@ class PostgresDirectAdapter(DatabaseAdapter):
         columns = [desc[0] for desc in cursor.description]
         result = await cursor.fetchall()
         return [dict(zip(columns, row)) for row in result]
+
+    async def fetch_databases(self) -> list[str]:
+        cursor = await self._conn.execute(
+            "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
+        )
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]

@@ -10,7 +10,7 @@ def test_database_adapter_is_abstract():
 
 
 def test_database_adapter_defines_interface():
-    methods = ["connect", "disconnect", "execute", "fetch_tables", "fetch_schema", "fetch_sample"]
+    methods = ["connect", "disconnect", "execute", "fetch_tables", "fetch_schema", "fetch_sample", "fetch_databases"]
     for method in methods:
         assert hasattr(DatabaseAdapter, method), f"Missing method: {method}"
 

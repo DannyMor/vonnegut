@@ -10,6 +10,7 @@ class InMemoryAdapter(DatabaseAdapter):
 
     def __init__(self, tables: dict[str, dict] | None = None):
         self._tables: dict[str, dict] = tables or {}
+        self._databases: list[str] = []
         self._connected = False
 
     def add_table(self, name: str, rows: list[dict]) -> None:
@@ -22,6 +23,11 @@ class InMemoryAdapter(DatabaseAdapter):
         else:
             schema = []
         self._tables[name] = {"schema": schema, "rows": list(rows)}
+
+    def add_database(self, name: str) -> None:
+        """Helper for tests — register a database name."""
+        if name not in self._databases:
+            self._databases.append(name)
 
     async def connect(self) -> None:
         self._connected = True
@@ -77,6 +83,9 @@ class InMemoryAdapter(DatabaseAdapter):
     async def fetch_sample(self, table: str, rows: int = 10) -> list[dict[str, Any]]:
         table_key = self._find_table(table)
         return list(self._tables[table_key]["rows"][:rows])
+
+    async def fetch_databases(self) -> list[str]:
+        return sorted(self._databases)
 
     def _find_table(self, name: str) -> str:
         for key in self._tables:

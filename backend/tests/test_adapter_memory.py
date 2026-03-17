@@ -101,3 +101,19 @@ async def test_execute_truncate(adapter):
     await adapter.execute("TRUNCATE TABLE users")
     rows = await adapter.fetch_sample("users", rows=100)
     assert len(rows) == 0
+
+
+@pytest.mark.asyncio
+async def test_fetch_databases():
+    adapter = InMemoryAdapter()
+    adapter.add_database("analytics")
+    adapter.add_database("production")
+    result = await adapter.fetch_databases()
+    assert result == ["analytics", "production"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_databases_empty():
+    adapter = InMemoryAdapter()
+    result = await adapter.fetch_databases()
+    assert result == []
