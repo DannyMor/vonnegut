@@ -1,5 +1,5 @@
 // frontend/src/components/connections/ConnectionList.tsx
-import { Connection } from "@/types/connection";
+import type { Connection } from "@/types/connection";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
