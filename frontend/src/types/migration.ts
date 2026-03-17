@@ -1,4 +1,4 @@
-import { Transformation } from "./transformation";
+import type { Transformation } from "./transformation";
 
 export type MigrationStatus =
   | "draft"
