@@ -30,14 +30,14 @@ export function ConnectionForm({ open, onClose, onSave, initial }: Props) {
   const [user, setUser] = useState(initial?.config.user ?? "");
   const [password, setPassword] = useState("");
   const [namespace, setNamespace] = useState(initial?.config.namespace ?? "default");
-  const [podName, setPodName] = useState(initial?.config.pod_name ?? "");
+  const [podSelector, setPodSelector] = useState(initial?.config.pod_selector ?? "");
   const [container, setContainer] = useState(initial?.config.container ?? "postgres");
 
   const handleSubmit = () => {
     const config =
       type === "postgres_direct"
         ? { host, port: Number(port), database, user, password }
-        : { namespace, pod_name: podName, container, database, user, password };
+        : { namespace, pod_selector: podSelector, container, database, user, password };
     onSave({ name, type, config });
     onClose();
   };
@@ -75,7 +75,7 @@ export function ConnectionForm({ open, onClose, onSave, initial }: Props) {
             <>
               <div className="grid grid-cols-2 gap-2">
                 <div><Label>Namespace</Label><Input value={namespace} onChange={(e) => setNamespace(e.target.value)} /></div>
-                <div><Label>Pod Name</Label><Input value={podName} onChange={(e) => setPodName(e.target.value)} /></div>
+                <div><Label>Pod Selector</Label><Input value={podSelector} onChange={(e) => setPodSelector(e.target.value)} /></div>
               </div>
               <div><Label>Container</Label><Input value={container} onChange={(e) => setContainer(e.target.value)} /></div>
             </>

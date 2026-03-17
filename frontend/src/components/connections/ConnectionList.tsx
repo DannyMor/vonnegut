@@ -34,7 +34,7 @@ export function ConnectionList({ connections, testResults, onEdit, onDelete, onT
               <div className="text-sm text-muted-foreground">
                 {conn.type === "postgres_direct"
                   ? `${conn.config.host}:${conn.config.port}/${conn.config.database}`
-                  : `${conn.config.namespace}/${conn.config.pod_name}`}
+                  : `${conn.config.namespace} | ${conn.config.pod_selector}`}
               </div>
             </div>
             <Badge variant="outline">{conn.type.replace("postgres_", "")}</Badge>

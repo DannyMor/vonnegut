@@ -1,13 +1,18 @@
 export interface ConnectionConfig {
+  // Direct connection
   host?: string;
   port?: number;
+  // Pod connection
+  namespace?: string;
+  pod_selector?: string;
+  pick_strategy?: "first_ready" | "name_contains";
+  pick_filter?: string;
+  container?: string;
+  local_port?: number;
+  // Shared
   database?: string;
   user?: string;
   password?: string;
-  namespace?: string;
-  pod_name?: string;
-  container?: string;
-  local_port?: number;
 }
 
 export interface Connection {

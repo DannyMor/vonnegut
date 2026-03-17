@@ -42,6 +42,7 @@ export const api = {
       ),
     sample: (id: string, table: string, rows = 10) =>
       request<Record<string, unknown>[]>(`/connections/${id}/tables/${table}/sample?rows=${rows}`),
+    databases: (id: string) => request<string[]>(`/connections/${id}/databases`),
   },
 
   migrations: {
