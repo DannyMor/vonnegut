@@ -3,6 +3,26 @@ from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
+from vonnegut.encryption import encrypt, decrypt
+
+_SENSITIVE_FIELDS = {"password"}
+
+
+def encrypt_config(config: dict, key: str) -> dict:
+    result = dict(config)
+    for field in _SENSITIVE_FIELDS:
+        if field in result:
+            result[field] = encrypt(result[field], key)
+    return result
+
+
+def decrypt_config(config: dict, key: str) -> dict:
+    result = dict(config)
+    for field in _SENSITIVE_FIELDS:
+        if field in result:
+            result[field] = decrypt(result[field], key)
+    return result
+
 
 class PostgresDirectConfig(BaseModel):
     host: str
