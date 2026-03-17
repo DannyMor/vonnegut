@@ -16,6 +16,10 @@ def _get_manager(request: Request):
     return request.app.state.connection_manager
 
 
+def _get_adapter_factory(request: Request):
+    return request.app.state.adapter_factory
+
+
 @router.post("/connections", response_model=ConnectionResponse, status_code=status.HTTP_201_CREATED)
 async def create_connection(body: ConnectionCreate, request: Request):
     manager = _get_manager(request)
@@ -61,3 +65,17 @@ async def delete_connection(conn_id: str, request: Request):
     deleted = await manager.delete(conn_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Connection not found")
+
+
+@router.post("/connections/{conn_id}/test")
+async def test_connection(conn_id: str, request: Request):
+    manager = _get_manager(request)
+    conn = await manager.get(conn_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    try:
+        adapter = await _get_adapter_factory(request).create(conn)
+        await adapter.disconnect()
+        return {"status": "ok", "message": "Connection successful"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

@@ -51,12 +51,16 @@ class InMemoryAdapter(DatabaseAdapter):
             self._tables[table_key]["rows"] = []
             return []
 
-        insert_match = re.match(r"INSERT\s+INTO\s+(\w+)", q)
-        if insert_match:
+        insert_match = re.match(r"INSERT\s+INTO\s+(\w+)\s*(?:\(([^)]+)\))?", q)
+        if insert_match and "INSERT" in q:
             table = insert_match.group(1).lower()
             table_key = self._find_table(table)
-            schema = self._tables[table_key]["schema"]
-            columns = [col.column for col in schema]
+            col_str = insert_match.group(2)
+            if col_str:
+                columns = [c.strip().lower() for c in col_str.split(",")]
+            else:
+                schema = self._tables[table_key]["schema"]
+                columns = [col.column for col in schema]
             row = dict(zip(columns, params))
             self._tables[table_key]["rows"].append(row)
             return []

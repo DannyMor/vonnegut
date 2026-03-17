@@ -1,5 +1,7 @@
 # backend/src/vonnegut/routers/migrations.py
+import asyncio
 import json
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -7,8 +9,13 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from vonnegut.models.migration import MigrationCreate, MigrationResponse, MigrationUpdate
 from vonnegut.models.transformation import TransformationResponse
+from vonnegut.services.transformation_engine import TransformationEngine
+from vonnegut.services.migration_runner import MigrationRunner
 
 router = APIRouter(tags=["migrations"])
+
+# In-memory state for running migrations
+_running_migrations: dict[str, threading.Event] = {}
 
 
 def _get_db(request: Request):
@@ -104,3 +111,122 @@ async def delete_migration(mig_id: str, request: Request):
     if existing is None:
         raise HTTPException(status_code=404, detail="Migration not found")
     await db.execute("DELETE FROM migrations WHERE id = ?", (mig_id,))
+
+
+def _get_adapter_factory(request: Request):
+    return request.app.state.adapter_factory
+
+
+@router.post("/migrations/{mig_id}/test")
+async def test_migration(mig_id: str, request: Request):
+    db = _get_db(request)
+    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Migration not found")
+
+    transforms = await _get_transformations(db, mig_id)
+    transform_dicts = [{"type": t.type, "config": t.config} for t in transforms]
+
+    manager = request.app.state.connection_manager
+    source_conn = await manager.get(row["source_connection_id"])
+    adapter_factory = _get_adapter_factory(request)
+    source_adapter = await adapter_factory.create(source_conn)
+
+    try:
+        engine = TransformationEngine()
+        runner = MigrationRunner(engine=engine)
+        result = await runner.run_test(source_adapter, row["source_table"], transform_dicts, rows=10)
+        return result
+    finally:
+        await source_adapter.disconnect()
+
+
+@router.post("/migrations/{mig_id}/run")
+async def run_migration(mig_id: str, request: Request):
+    db = _get_db(request)
+    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Migration not found")
+    if row["status"] == "running":
+        raise HTTPException(status_code=409, detail="Migration is already running")
+
+    settings = request.app.state.settings
+    await db.execute(
+        "UPDATE migrations SET status = 'running', rows_processed = 0, error_message = NULL, updated_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), mig_id),
+    )
+
+    cancel_flag = threading.Event()
+    _running_migrations[mig_id] = cancel_flag
+
+    adapter_factory = _get_adapter_factory(request)
+
+    async def _run():
+        manager = request.app.state.connection_manager
+        source_conn = await manager.get(row["source_connection_id"])
+        target_conn = await manager.get(row["target_connection_id"])
+        source_adapter = await adapter_factory.create(source_conn)
+        target_adapter = await adapter_factory.create(target_conn)
+
+        transforms = await _get_transformations(db, mig_id)
+        transform_dicts = [{"type": t.type, "config": t.config} for t in transforms]
+
+        engine = TransformationEngine()
+        runner = MigrationRunner(engine=engine)
+
+        async def on_progress(rows_done, total):
+            await db.execute(
+                "UPDATE migrations SET rows_processed = ?, total_rows = ?, updated_at = ? WHERE id = ?",
+                (rows_done, total, datetime.now(timezone.utc).isoformat(), mig_id),
+            )
+
+        try:
+            result = await runner.run(
+                source_adapter=source_adapter,
+                target_adapter=target_adapter,
+                source_table=row["source_table"],
+                target_table=row["target_table"],
+                transformations=transform_dicts,
+                truncate_target=bool(row["truncate_target"]),
+                row_limit=settings.migration_row_limit,
+                batch_size=settings.migration_batch_size,
+                on_progress=on_progress,
+                cancel_flag=cancel_flag,
+            )
+            await db.execute(
+                "UPDATE migrations SET status = ?, rows_processed = ?, updated_at = ? WHERE id = ?",
+                (result["status"], result["rows_processed"], datetime.now(timezone.utc).isoformat(), mig_id),
+            )
+        except Exception as e:
+            await db.execute(
+                "UPDATE migrations SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?",
+                (str(e), datetime.now(timezone.utc).isoformat(), mig_id),
+            )
+        finally:
+            await source_adapter.disconnect()
+            await target_adapter.disconnect()
+            _running_migrations.pop(mig_id, None)
+
+    asyncio.create_task(_run())
+    return {"status": "started", "migration_id": mig_id}
+
+
+@router.post("/migrations/{mig_id}/cancel")
+async def cancel_migration(mig_id: str, request: Request):
+    cancel_flag = _running_migrations.get(mig_id)
+    if cancel_flag is None:
+        raise HTTPException(status_code=404, detail="No running migration found")
+    cancel_flag.set()
+    return {"status": "cancelling", "migration_id": mig_id}
+
+
+@router.get("/migrations/{mig_id}/status")
+async def get_migration_status(mig_id: str, request: Request):
+    db = _get_db(request)
+    row = await db.fetch_one(
+        "SELECT status, rows_processed, total_rows, error_message FROM migrations WHERE id = ?",
+        (mig_id,),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Migration not found")
+    return dict(row)
