@@ -1,0 +1,68 @@
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, model_validator
+
+
+class PostgresDirectConfig(BaseModel):
+    host: str
+    port: int = 5432
+    database: str
+    user: str
+    password: str
+
+
+class PostgresPodConfig(BaseModel):
+    namespace: str
+    pod_name: str
+    container: str
+    database: str
+    user: str
+    password: str
+    local_port: int | None = None
+
+
+class ConnectionCreate(BaseModel):
+    name: str
+    type: Literal["postgres_direct", "postgres_pod"]
+    config: dict
+
+    @property
+    def parsed_config(self) -> PostgresDirectConfig | PostgresPodConfig:
+        if self.type == "postgres_direct":
+            return PostgresDirectConfig(**self.config)
+        return PostgresPodConfig(**self.config)
+
+    @model_validator(mode="after")
+    def validate_config(self):
+        self.parsed_config
+        return self
+
+
+class ConnectionUpdate(BaseModel):
+    name: str | None = None
+    config: dict | None = None
+
+
+class Connection(BaseModel):
+    id: str
+    name: str
+    type: Literal["postgres_direct", "postgres_pod"]
+    config: dict
+    created_at: str
+    updated_at: str
+
+
+class ConnectionResponse(BaseModel):
+    id: str
+    name: str
+    type: Literal["postgres_direct", "postgres_pod"]
+    config: dict
+    created_at: str
+    updated_at: str
+
+    @model_validator(mode="after")
+    def mask_password(self):
+        if "password" in self.config:
+            self.config = {**self.config, "password": "********"}
+        return self
