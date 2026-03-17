@@ -7,6 +7,9 @@ from vonnegut.database import Database
 from vonnegut.encryption import get_or_create_key
 from vonnegut.adapters.factory import DefaultAdapterFactory
 from vonnegut.routers.connections import router as connections_router
+from vonnegut.routers.explorer import router as explorer_router
+from vonnegut.routers.migrations import router as migrations_router
+from vonnegut.routers.transformations import router as transformations_router
 from vonnegut.services.connection_manager import ConnectionManager
 
 
@@ -36,5 +39,8 @@ def create_app(
     )
 
     app.include_router(connections_router, prefix="/api/v1")
+    app.include_router(explorer_router, prefix="/api/v1")
+    app.include_router(migrations_router, prefix="/api/v1")
+    app.include_router(transformations_router, prefix="/api/v1")
 
     return app

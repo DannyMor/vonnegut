@@ -1,0 +1,102 @@
+# backend/tests/test_api_migrations.py
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
+
+from vonnegut.main import create_app
+from vonnegut.database import Database
+
+
+@pytest_asyncio.fixture
+async def app(tmp_path, encryption_key):
+    db = Database(f"sqlite+aiosqlite:///{tmp_path}/test.db")
+    await db.initialize()
+    application = create_app(db=db, encryption_key=encryption_key)
+    yield application
+    await db.close()
+
+
+@pytest_asyncio.fixture
+async def client(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+async def _create_connections(client):
+    src = await client.post("/api/v1/connections", json={
+        "name": "Source", "type": "postgres_direct",
+        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+    })
+    tgt = await client.post("/api/v1/connections", json={
+        "name": "Target", "type": "postgres_direct",
+        "config": {"host": "h2", "port": 5432, "database": "d2", "user": "u", "password": "p"},
+    })
+    return src.json()["id"], tgt.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_create_migration(client):
+    src_id, tgt_id = await _create_connections(client)
+    resp = await client.post("/api/v1/migrations", json={
+        "name": "Test Migration",
+        "source_connection_id": src_id,
+        "target_connection_id": tgt_id,
+        "source_table": "users",
+        "target_table": "users_copy",
+    })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["name"] == "Test Migration"
+    assert data["status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_list_migrations(client):
+    src_id, tgt_id = await _create_connections(client)
+    await client.post("/api/v1/migrations", json={
+        "name": "Mig1", "source_connection_id": src_id, "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    resp = await client.get("/api/v1/migrations")
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 1
+
+
+@pytest.mark.asyncio
+async def test_get_migration(client):
+    src_id, tgt_id = await _create_connections(client)
+    create_resp = await client.post("/api/v1/migrations", json={
+        "name": "Fetch Me", "source_connection_id": src_id, "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    mig_id = create_resp.json()["id"]
+    resp = await client.get(f"/api/v1/migrations/{mig_id}")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Fetch Me"
+    assert resp.json()["transformations"] == []
+
+
+@pytest.mark.asyncio
+async def test_update_migration(client):
+    src_id, tgt_id = await _create_connections(client)
+    create_resp = await client.post("/api/v1/migrations", json={
+        "name": "Old", "source_connection_id": src_id, "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    mig_id = create_resp.json()["id"]
+    resp = await client.put(f"/api/v1/migrations/{mig_id}", json={"name": "New"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "New"
+
+
+@pytest.mark.asyncio
+async def test_delete_migration(client):
+    src_id, tgt_id = await _create_connections(client)
+    create_resp = await client.post("/api/v1/migrations", json={
+        "name": "Del", "source_connection_id": src_id, "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    mig_id = create_resp.json()["id"]
+    resp = await client.delete(f"/api/v1/migrations/{mig_id}")
+    assert resp.status_code == 204
