@@ -38,6 +38,7 @@ class PostgresPodConfig(BaseModel):
     pick_strategy: Literal["first_ready", "name_contains"] = "first_ready"
     pick_filter: str | None = None
     container: str | None = None
+    port: int = 5432
     database: str = ""
     user: str
     password: str

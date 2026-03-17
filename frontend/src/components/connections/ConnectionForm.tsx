@@ -72,6 +72,7 @@ export function ConnectionForm({ open, onClose, onSave, initial }: Props) {
             pick_strategy: pickStrategy,
             ...(pickStrategy === "name_contains" && pickFilter ? { pick_filter: pickFilter } : {}),
             ...(container ? { container } : {}),
+            port: Number(port),
             database,
             user,
             password,
@@ -144,13 +145,19 @@ export function ConnectionForm({ open, onClose, onSave, initial }: Props) {
                   </div>
                 )}
               </div>
-              <div>
-                <Label>Container <span className="text-xs text-muted-foreground">(optional, for multi-container pods)</span></Label>
-                <Input
-                  value={container}
-                  onChange={(e) => setContainer(e.target.value)}
-                  placeholder="Leave empty for single-container pods"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Port</Label>
+                  <Input value={port} onChange={(e) => setPort(e.target.value)} placeholder="5432" />
+                </div>
+                <div>
+                  <Label>Container <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                  <Input
+                    value={container}
+                    onChange={(e) => setContainer(e.target.value)}
+                    placeholder="For multi-container pods"
+                  />
+                </div>
               </div>
             </>
           )}

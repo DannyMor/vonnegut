@@ -1,4 +1,6 @@
 # backend/src/vonnegut/main.py
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,7 +23,23 @@ def create_app(
     adapter_factory=None,
 ) -> FastAPI:
     settings = settings or Settings()
-    app = FastAPI(title="Vonnegut", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Startup: initialize DB if not injected (i.e. production mode)
+        if app.state.db is None:
+            db_instance = Database(settings.database_url)
+            await db_instance.initialize()
+            app.state.db = db_instance
+            app.state.connection_manager = ConnectionManager(
+                db=db_instance, encryption_key=app.state.encryption_key,
+            )
+        yield
+        # Shutdown: close DB
+        if app.state.db is not None:
+            await app.state.db.close()
+
+    app = FastAPI(title="Vonnegut", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -46,3 +64,7 @@ def create_app(
     app.include_router(transformations_router, prefix="/api/v1")
 
     return app
+
+
+# uvicorn entry point: `uvicorn vonnegut.main:app --factory`
+app = create_app
