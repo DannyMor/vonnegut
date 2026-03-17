@@ -7,26 +7,27 @@ A single-user tool for exploring, transforming, and migrating data between Postg
 ## Tech Stack
 
 ### Backend
-- **Runtime:** Python
+- **Runtime:** Python 3.14.3
 - **Package manager:** uv
-- **Framework:** FastAPI
-- **Validation:** Pydantic
-- **Testing:** pytest
-- **Database driver:** psycopg (v3)
-- **App state:** SQLite (via aiosqlite)
-- **Secret encryption:** cryptography (Fernet)
-- **AI integration:** Anthropic Python SDK
+- **Framework:** FastAPI 0.135.1
+- **Validation:** Pydantic 2.12.5
+- **Testing:** pytest 9.0.2
+- **Database driver:** psycopg 3.3.3
+- **App state:** SQLite (via aiosqlite 0.22.1)
+- **Secret encryption:** cryptography 46.0.5 (Fernet)
+- **AI integration:** Anthropic Python SDK 0.85.0
 - **K8s access:** subprocess (kubectl commands)
 
 ### Frontend
-- **Framework:** React + TypeScript
-- **Build tool:** Vite
-- **Routing:** React Router
+- **Runtime:** Node.js 24.14.0 (LTS)
+- **Framework:** React 19.2.4 + TypeScript 5.9.3
+- **Build tool:** Vite 8.0.0
+- **Routing:** React Router 7.13.1
 - **UI components:** shadcn/ui
-- **Styling:** Tailwind CSS
-- **Data tables:** TanStack Table (via shadcn/ui)
-- **Visual pipeline:** React Flow
-- **Icons:** Lucide React (default, swappable via registry)
+- **Styling:** Tailwind CSS 4.2.1
+- **Data tables:** TanStack React Table 8.21.3 (via shadcn/ui)
+- **Visual pipeline:** React Flow (@xyflow/react) 12.10.1
+- **Icons:** Lucide React 0.577.0 (default, swappable via registry)
 
 ## Architecture
 
