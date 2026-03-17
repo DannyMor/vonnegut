@@ -34,9 +34,11 @@ class PostgresDirectConfig(BaseModel):
 
 class PostgresPodConfig(BaseModel):
     namespace: str
-    pod_name: str
-    container: str
-    database: str
+    pod_selector: str
+    pick_strategy: Literal["first_ready", "name_contains"] = "first_ready"
+    pick_filter: str | None = None
+    container: str | None = None
+    database: str = ""
     user: str
     password: str
     local_port: int | None = None
