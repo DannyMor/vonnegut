@@ -52,6 +52,17 @@ This pattern applies to all result types in the system — validation, execution
 - **Interfaces before implementations** — define ABCs, then implement. Allows swapping and testing
 - **Minimize mocks in tests** — use real implementations and in-memory test doubles that implement the same interface. Only mock when truly necessary (external APIs)
 
+## Testing
+
+- **Interfaces over mocks** — define abstract interfaces (ABCs), then build real in-memory implementations for tests. Test doubles should implement the same interface as production code
+- **Real implementations first** — prefer real implementations over mocks whenever possible. Only mock when there is no realistic alternative (external APIs, network calls)
+- **Test doubles behave like the real system** — test implementations should exercise real logic, not just return hardcoded values. An in-memory database adapter should parse and execute queries, not return canned results
+- **Integration-style tests** — test components working together through their interfaces. A test for `PipelineOrchestrator` should use real executors with real data, not stubs
+- **If a test is hard to write, the design is wrong** — difficulty writing tests signals that the code under test has too many dependencies, unclear boundaries, or hidden coupling. Fix the design, not the test
+- **Don't test the language or tooling** — no tests for "does dataclass work" or "does pydantic validate." Test your logic and behavior, not framework guarantees
+- **No low-value tests** — skip tests that only assert constructor assignment or trivial getters. Every test should validate meaningful behavior
+- **Specific assertions** — assert on the exact values and structure you expect, not just "it didn't throw"
+
 ## Style
 
 - No unnecessary comments — code should be self-documenting
