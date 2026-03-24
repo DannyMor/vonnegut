@@ -115,9 +115,10 @@ Pure configuration. No behavior. One config type per node type.
 class Node:
     id: str
     type: NodeType          # source | sql | code | target
-    position: int
     config: NodeConfig      # discriminated union by type
 ```
+
+No `position` field — execution order is determined by topological sort of the edge graph.
 
 **Node config types:**
 
@@ -147,15 +148,65 @@ The top-level container. Stored in the database.
 class PipelineDefinition:
     id: str
     name: str
-    nodes: list[Node]       # ordered sequence
-    current_hash: str       # hash of pipeline structure + all node configs
+    nodes: dict[str, Node]  # keyed by node ID
+    edges: list[Edge]       # directed connections between nodes
+    current_hash: str       # hash of pipeline structure + all node configs + edges
     created_at: datetime
     updated_at: datetime
 ```
 
-**`current_hash`** is a deterministic hash computed from the pipeline's structural content: the ordered node types, their configs, and connection settings. It changes whenever the user modifies any node or reorders the pipeline. It does NOT change on metadata updates (name, timestamps). The hash is recomputed on every save.
+**`current_hash`** is a deterministic hash computed from the pipeline's structural content: nodes, their configs, edges, and connection settings. It changes whenever the user modifies any node, adds/removes edges, or changes connections. It does NOT change on metadata updates (name, timestamps). The hash is recomputed on every save.
 
-**Note:** The pipeline is an ordered list, not a DAG. Branching/merging (multiple sources or targets) is a future enhancement. The current design assumes a linear chain: source → transform_1 → ... → transform_n → target.
+### 4.3.1 Edge
+
+An edge represents a data flow connection between two nodes.
+
+```python
+class Edge:
+    id: str
+    from_node_id: str
+    to_node_id: str
+    input_name: str | None  # named input slot (e.g., "left", "right" for joins)
+```
+
+**`input_name`** identifies which input slot on the target node this edge connects to. For single-input nodes (SQL, code), this is `None` (there's only one input). For multi-input nodes like joins, it distinguishes inputs: `"left"`, `"right"`. This field is what makes joins, unions, and other multi-input operations work without special-casing.
+
+**Examples:**
+
+Linear chain (v1):
+```
+Source ──> SQL Transform ──> Code Transform ──> Target
+  Edge(from=source, to=sql, input_name=None)
+  Edge(from=sql, to=code, input_name=None)
+  Edge(from=code, to=target, input_name=None)
+```
+
+Join (future):
+```
+Source A ──┐
+           ├──> Join ──> Target
+Source B ──┘
+  Edge(from=a, to=join, input_name="left")
+  Edge(from=b, to=join, input_name="right")
+```
+
+Split (future):
+```
+           ┌──> Transform B ──> Target 1
+Source A ──┤
+           └──> Transform C ──> Target 2
+  Edge(from=a, to=b, input_name=None)
+  Edge(from=a, to=c, input_name=None)
+```
+
+### 4.3.2 DAG Constraints
+
+The pipeline is a **Directed Acyclic Graph (DAG)**. The following invariants are enforced on save:
+
+1. **No cycles** — topological sort must succeed
+2. **All nodes reachable** — no orphaned nodes
+3. **At least one source and one target** — pipeline has clear entry and exit points
+4. **v1 constraint: linear chain only** — each node has at most one incoming and one outgoing edge. This constraint is enforced in v1 and relaxed when multi-input nodes (joins, unions) are introduced. The data model already supports the general case.
 
 ### 4.4 Pipeline Metadata (Derived State)
 
@@ -164,7 +215,7 @@ Stored separately from the pipeline definition. Inferred schemas and validation 
 ```python
 class NodeMetadata:
     node_id: str
-    input_schema: Schema | None
+    input_schemas: dict[str, Schema]  # keyed by input_name (or "default" for single-input)
     output_schema: Schema | None
     validation_status: str          # pending | passed | failed
     last_validated_at: datetime | None
@@ -198,25 +249,34 @@ VALID → DRAFT (on edit, i.e. hash mismatch)
 
 ```python
 class LogicalPlan:
-    nodes: list[PlanNode]       # ordered sequence
+    nodes: dict[str, PlanNode]  # keyed by node ID
+    edges: list[PlanEdge]       # directed connections
 
 class PlanNode:
     id: str                     # stable identifier for reporting/tracking
     type: NodeType
     config: NodeConfig
+
+class PlanEdge:
+    from_node_id: str
+    to_node_id: str
+    input_name: str | None
 ```
+
+Execution order is determined by **topological sort** of the DAG. For v1 (linear chain), this produces a simple ordered sequence.
 
 **Execution Plan** — produced by the optimizer. May have fewer nodes than the logical plan (e.g., consecutive SQL nodes merged into one). Each node in the execution plan has an associated execution context.
 
 ```python
 class ExecutionPlan:
-    contexts: list[ExecutionContext]   # ordered, optimized sequence
+    contexts: list[ExecutionContext]   # topologically sorted, optimized sequence
+    edges: list[PlanEdge]             # connections (may differ from logical plan after optimization)
 
 class ExecutionContext:
     node_id: str                # maps back to original node(s) for reporting
     node_type: NodeType
     config: NodeConfig          # the node's config (or merged config for optimized SQL)
-    input_schema: Schema        # canonical schema from previous node
+    input_schemas: dict[str, Schema]  # keyed by input_name (or "default" for single-input)
     connection_info: dict | None  # resolved connection details if needed
 ```
 
@@ -240,12 +300,15 @@ Executors receive `pa.Table` and return `pa.Table`. Internal to an executor, dat
 
 ### 5.1 Executor
 
-Runs a single node. Takes an execution context + input data, returns output data. Stateless — all context comes from the execution context.
+Runs a single node. Takes an execution context + named inputs, returns output data. Stateless — all context comes from the execution context.
 
 ```python
 class NodeExecutor(ABC):
-    async def execute(self, context: ExecutionContext, input_data: pa.Table) -> pa.Table
+    async def execute(self, context: ExecutionContext,
+                      inputs: dict[str, pa.Table]) -> pa.Table
 ```
+
+**`inputs`** is a dictionary of named input tables, keyed by `input_name` from the edge. For single-input nodes (v1), this is `{"default": table}`. For multi-input nodes like joins, it's `{"left": table_a, "right": table_b}`.
 
 Executors are async because database operations (source queries, target writes) are inherently async in the FastAPI stack. All executors, validators, and the orchestrator use `async/await` throughout.
 
@@ -283,11 +346,12 @@ class ValidationRule(ABC):
     critical: bool = True   # if True, a failure stops subsequent checks
 
     def check(self, node: Node, context: ExecutionContext,
-              input_data, output_data,
-              input_schema: Schema, output_schema: Schema | None) -> CheckResult
+              input_data: dict[str, Any], output_data: Any,
+              input_schemas: dict[str, Schema],
+              output_schema: Schema | None) -> CheckResult
 ```
 
-A rule receives the node, its context, the input/output data and schemas, and returns a result. Not all rules use all parameters — a syntax check ignores data, an execution check inspects output. Rules are purely observational — they do not execute the node or mutate data. The executor is not passed to rules; only the validator calls the executor (see section 6.3).
+A rule receives the node, its context, the named input/output data and schemas, and returns a result. Not all rules use all parameters — a syntax check ignores data, an execution check inspects output. Rules are purely observational — they do not execute the node or mutate data. The executor is not passed to rules; only the validator calls the executor (see section 6.3).
 
 ```python
 class CheckResult:
@@ -331,12 +395,12 @@ class NodeValidator:
         self.rules = rules
 
     async def validate(self, node: Node, context: ExecutionContext,
-                       input_data: pa.Table) -> ValidationResult:
+                       inputs: dict[str, pa.Table]) -> ValidationResult:
         # 1. Execute the node (catch failures)
         output_data = None
         output_schema = None
         try:
-            output_data = await self.executor.execute(context, input_data)
+            output_data = await self.executor.execute(context, inputs)
             # Infer schema from output using the appropriate schema adapter
             # (e.g., PolarsSchemaAdapter for code nodes, ArrowSchemaAdapter for SQL)
             output_schema = schema_adapter.from_engine(output_data)
@@ -355,8 +419,8 @@ class NodeValidator:
         # 2. Run each check
         check_results = []
         for rule in self.rules:
-            result = rule.check(node, context, input_data, output_data,
-                                context.input_schema, output_schema)
+            result = rule.check(node, context, inputs, output_data,
+                                context.input_schemas, output_schema)
             check_results.append(result)
             if result.status == "failed" and rule.critical:
                 break  # stop on critical failure
@@ -371,24 +435,24 @@ class NodeValidator:
 
 ### 6.4 Pipeline Validator
 
-Cross-node validation that runs at the boundaries between nodes. Also rule-based.
+Cross-edge validation that runs at the boundaries between connected nodes. Also rule-based.
 
 ```python
 class PipelineValidationRule(ABC):
-    def check(self, from_node: Node, to_node: Node,
-              from_schema: Schema, to_schema: Schema) -> CheckResult
+    def check(self, edge: PlanEdge, from_node: PlanNode, to_node: PlanNode,
+              from_schema: Schema, to_input_name: str | None) -> CheckResult
 
 class PipelineValidator:
     def __init__(self, rules: list[PipelineValidationRule]):
         self.rules = rules
 
-    def validate_boundary(self, from_node, to_node,
-                          from_schema, to_schema) -> list[CheckResult]
+    def validate_edge(self, edge, from_node, to_node,
+                      from_schema, to_input_name) -> list[CheckResult]
 ```
 
 **Example pipeline validation rules:**
-- `SchemaCompatibilityRule` — does the output of node N have all columns expected by node N+1?
-- `TypeCompatibilityRule` — are column types compatible across the boundary? (supports strict and lenient modes)
+- `SchemaCompatibilityRule` — does the output of the upstream node have all columns expected by the downstream node's input?
+- `TypeCompatibilityRule` — are column types compatible across the edge? (supports strict and lenient modes)
 - `NullabilityRule` — does a non-nullable target column receive data from a nullable source column?
 
 ### 6.5 Validation Result
@@ -471,19 +535,27 @@ class PipelineOrchestrator:
 
 ### 8.2 Test Mode Walk
 
+Traverses the DAG in topological order. Each node collects its named inputs from upstream outputs.
+
 ```python
-async def run_test(self, plan, sample_data, reporter):
-    input_data = sample_data        # pa.Table
-    input_schema = None             # Schema (canonical)
-    prev_node = None
+async def run_test(self, plan, reporter):
+    order = topological_sort(plan.nodes, plan.edges)
+    node_outputs: dict[str, pa.Table] = {}      # node_id -> output data
+    node_schemas: dict[str, Schema] = {}         # node_id -> output schema
     results = []
 
-    for node in plan.nodes:
-        context = build_execution_context(node, input_schema)
+    for node_id in order:
+        node = plan.nodes[node_id]
+
+        # Collect named inputs from upstream edges
+        inputs = collect_inputs(node_id, plan.edges, node_outputs)
+        input_schemas = collect_input_schemas(node_id, plan.edges, node_schemas)
+
+        context = build_execution_context(node, input_schemas)
         validator = self.validator_registry.get(node.type)
 
         await reporter.emit("node_start", node_id=node.id, name=node.config.name)
-        result = await validator.validate(node, context, input_data)
+        result = await validator.validate(node, context, inputs)
         await reporter.emit("node_complete", node_id=node.id, checks=result.checks)
 
         results.append(result)
@@ -491,29 +563,35 @@ async def run_test(self, plan, sample_data, reporter):
             await reporter.emit("pipeline_failed", node_id=node.id)
             break
 
-        # Pipeline-level validation at boundary
-        if prev_node is not None and input_schema is not None:
-            boundary_checks = self.pipeline_validator.validate_boundary(
-                prev_node, node, input_schema, result.output_schema)
-            results[-1].checks.extend(boundary_checks)
-            if any(c.status == "failed" for c in boundary_checks):
-                await reporter.emit("pipeline_failed", node_id=node.id)
-                break
+        # Pipeline-level validation on each incoming edge
+        for edge in get_incoming_edges(node_id, plan.edges):
+            from_node = plan.nodes[edge.from_node_id]
+            from_schema = node_schemas.get(edge.from_node_id)
+            if from_schema is not None:
+                edge_checks = self.pipeline_validator.validate_edge(
+                    edge, from_node, node, from_schema, edge.input_name)
+                results[-1].checks.extend(edge_checks)
+                if any(c.status == "failed" for c in edge_checks):
+                    await reporter.emit("pipeline_failed", node_id=node.id)
+                    break
 
-        input_data = result.output_data
-        input_schema = result.output_schema
-        prev_node = node
+        node_outputs[node_id] = result.output_data
+        node_schemas[node_id] = result.output_schema
 
     return TestResult(node_results=results)
 ```
 
+**Helper functions:**
+- `collect_inputs(node_id, edges, outputs)` — returns `dict[str, pa.Table]` keyed by `input_name` (or `"default"`)
+- `topological_sort(nodes, edges)` — returns node IDs in execution order; raises on cycles
+
 ### 8.3 Execute Mode Walk (Dry-Run and Run)
 
 ```python
-async def run_execute(self, plan, data, reporter, allow_writes):
-    input_data = data               # pa.Table
+async def run_execute(self, plan, reporter, allow_writes):
+    node_outputs: dict[str, pa.Table] = {}
 
-    for exec_context in plan.contexts:
+    for exec_context in plan.contexts:  # topologically sorted
         executor = self.executor_registry.get(exec_context.node_type)
 
         # Skip target writes in dry-run
@@ -522,18 +600,21 @@ async def run_execute(self, plan, data, reporter, allow_writes):
                                 reason="dry-run: writes disabled")
             continue
 
+        # Collect named inputs from upstream outputs
+        inputs = collect_inputs(exec_context.node_id, plan.edges, node_outputs)
+
         await reporter.emit("node_start", node_id=exec_context.node_id)
         try:
-            output_data = await executor.execute(exec_context, input_data)
+            output_data = await executor.execute(exec_context, inputs)
             await reporter.emit("node_complete", node_id=exec_context.node_id)
         except Exception as e:
             await reporter.emit("node_failed", node_id=exec_context.node_id,
                                 error=str(e))
             return ExecutionResult(output_data=None, success=False, error=str(e))
 
-        input_data = output_data
+        node_outputs[exec_context.node_id] = output_data
 
-    return ExecutionResult(output_data=input_data, success=True, error=None)
+    return ExecutionResult(output_data=None, success=True, error=None)
 ```
 
 ```python
@@ -814,7 +895,7 @@ No changes to: any execution or validation logic.
 6. **Execution contexts are immutable** — executors cannot mutate configuration
 7. **Reporter is optional** — the system works without any observer
 8. **Prefer composition over inheritance** — validators compose rules, optimizers compose rules
-9. **Linear pipeline only (for now)** — DAG support is a future enhancement
+9. **DAG data model from day 1** — edges and named inputs are modeled now; v1 enforces linear chains via validation, not data model limitations
 
 ---
 
@@ -864,7 +945,7 @@ The existing SSE streaming becomes an `SSEReporter` listener. The existing CTE c
 
 ## 18. Future Enhancements
 
-- DAG support (branching/merging pipelines)
+- Multi-input nodes (joins, unions) — data model supports this, needs executor implementations
 - Cost-based optimizer (using table statistics)
 - Parallel execution of independent branches
 - Caching intermediate results
