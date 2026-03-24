@@ -78,6 +78,69 @@ The existing `PipelineEngine` (in `services/pipeline_engine.py`) is a single ~30
 
 **Does NOT:** contain business logic.
 
+### 3.4 Directory Structure
+
+```
+backend/src/vonnegut/
+├── pipeline/                          # Everything pipeline-related
+│   ├── control_plane/                 # "What" layer — lifecycle, state, persistence
+│   │   ├── pipeline_manager.py        # Lifecycle: validate → dry-run → run
+│   │   ├── pipeline_state.py          # Hash tracking, validation status
+│   │   └── repository/               # DB persistence
+│   │       ├── pipeline_repo.py
+│   │       └── metadata_repo.py
+│   │
+│   ├── engine/                        # "How" layer — execution, validation, optimization
+│   │   ├── orchestrator.py            # Walks DAG, passes data between nodes
+│   │   ├── executor/                  # Per-type node executors
+│   │   │   ├── base.py                # NodeExecutor ABC
+│   │   │   ├── source_executor.py
+│   │   │   ├── sql_executor.py
+│   │   │   ├── code_executor.py
+│   │   │   └── target_executor.py
+│   │   ├── validator/                 # Rule-based validation
+│   │   │   ├── node_validator.py      # Composes executor + rules
+│   │   │   ├── pipeline_validator.py  # Cross-edge boundary checks
+│   │   │   └── rules/                # Individual validation rules
+│   │   │       ├── base.py            # ValidationRule ABC
+│   │   │       ├── code_rules.py      # SyntaxCheck, ExecutionCheck, SchemaStability
+│   │   │       ├── sql_rules.py       # SqlParse, SqlExecution, ColumnExistence
+│   │   │       ├── source_rules.py    # Connection, QueryExecution
+│   │   │       └── target_rules.py    # Connection, SchemaAvailability
+│   │   └── optimizer/                 # Logical plan → execution plan
+│   │       ├── optimizer.py
+│   │       └── rules/                # Individual optimization rules
+│   │           ├── base.py            # OptimizationRule ABC
+│   │           ├── merge_sql.py
+│   │           └── predicate_pushdown.py
+│   │
+│   ├── dag/                           # Graph modeling
+│   │   ├── node.py                    # Node config (pure data)
+│   │   ├── edge.py                    # Edge definition
+│   │   ├── graph.py                   # PipelineGraph + topological sort
+│   │   └── plan.py                    # LogicalPlan, ExecutionPlan, ExecutionContext
+│   │
+│   ├── schema/                        # Canonical schema abstraction
+│   │   ├── types.py                   # Schema, Column, DataType
+│   │   └── adapters/                  # Engine-specific converters
+│   │       ├── arrow_adapter.py
+│   │       ├── polars_adapter.py
+│   │       ├── postgres_adapter.py
+│   │       └── duckdb_adapter.py
+│   │
+│   └── reporter/                      # Event system
+│       ├── base.py                    # Reporter ABC
+│       ├── sse_reporter.py
+│       └── log_reporter.py
+│
+├── adapters/                          # DB adapters (existing — connections layer)
+├── models/                            # Pydantic/DB models (existing)
+├── routers/                           # FastAPI routers (existing)
+└── services/                          # Existing services (to be migrated)
+```
+
+This structure reflects the architecture: control plane and engine are siblings under `pipeline/`, DAG and schema are shared infrastructure, and the existing codebase (`adapters/`, `models/`, `routers/`, `services/`) stays in place and is gradually migrated.
+
 ---
 
 ## 4. Core Data Models
@@ -395,29 +458,20 @@ class NodeValidator:
         self.rules = rules
 
     async def validate(self, node: Node, context: ExecutionContext,
-                       inputs: dict[str, pa.Table]) -> ValidationResult:
+                       inputs: dict[str, pa.Table]) -> NodeValidationResult:
         # 1. Execute the node (catch failures)
-        output_data = None
-        output_schema = None
         try:
             output_data = await self.executor.execute(context, inputs)
-            # Infer schema from output using the appropriate schema adapter
-            # (e.g., PolarsSchemaAdapter for code nodes, ArrowSchemaAdapter for SQL)
             output_schema = schema_adapter.from_engine(output_data)
         except Exception as exec_error:
-            # Execution failure is captured — checks will inspect it
-            check_results = [CheckResult(
-                rule_name="execution",
-                status="failed",
-                message=str(exec_error),
-            )]
-            return ValidationResult(
+            return ValidationFailure(
+                errors=[CheckResult(rule_name="execution", status="failed",
+                                    message=str(exec_error))],
                 output_schema=None, output_data=None,
-                checks=check_results, success=False,
             )
 
         # 2. Run each check
-        check_results = []
+        check_results: list[CheckResult] = []
         for rule in self.rules:
             result = rule.check(node, context, inputs, output_data,
                                 context.input_schemas, output_schema)
@@ -425,11 +479,15 @@ class NodeValidator:
             if result.status == "failed" and rule.critical:
                 break  # stop on critical failure
 
-        return ValidationResult(
-            output_schema=output_schema,
-            output_data=output_data,
+        failed = [r for r in check_results if r.status == "failed"]
+        if failed:
+            return ValidationFailure(
+                errors=failed, output_schema=output_schema,
+                output_data=output_data,
+            )
+        return ValidationSuccess(
+            output_schema=output_schema, output_data=output_data,
             checks=check_results,
-            success=all(r.status != "failed" for r in check_results),
         )
 ```
 
@@ -457,13 +515,36 @@ class PipelineValidator:
 
 ### 6.5 Validation Result
 
+Uses a discriminated union — no boolean flags. Branch with pattern matching.
+
 ```python
-class ValidationResult:
-    output_schema: Schema | None    # inferred output schema (canonical)
-    output_data: Any | None         # output data (for passing to next node)
-    checks: list[CheckResult]       # all check results
-    success: bool                   # True if no critical failures
+@dataclass
+class ValidationSuccess:
+    output_schema: Schema           # inferred output schema (canonical)
+    output_data: pa.Table           # output data (for passing to next node)
+    checks: list[CheckResult]       # all check results (all passed/warning)
+
+@dataclass
+class ValidationFailure:
+    errors: list[CheckResult]       # failed checks
+    output_schema: Schema | None    # partial schema if inference succeeded before failure
+    output_data: pa.Table | None    # partial data if execution succeeded before failure
+
+NodeValidationResult = ValidationSuccess | ValidationFailure
 ```
+
+**Usage:**
+```python
+match result:
+    case ValidationSuccess(output_schema=schema, output_data=data):
+        node_outputs[node_id] = data
+        node_schemas[node_id] = schema
+    case ValidationFailure(errors=errors):
+        await reporter.emit("node_failed", node_id=node.id, errors=errors)
+        break
+```
+
+This pattern is used consistently across the system — see `docs/CODE_CONVENTIONS.md`.
 
 ---
 
@@ -610,18 +691,24 @@ async def run_execute(self, plan, reporter, allow_writes):
         except Exception as e:
             await reporter.emit("node_failed", node_id=exec_context.node_id,
                                 error=str(e))
-            return ExecutionResult(output_data=None, success=False, error=str(e))
+            return ExecutionFailure(node_id=exec_context.node_id, error=str(e))
 
         node_outputs[exec_context.node_id] = output_data
 
-    return ExecutionResult(output_data=None, success=True, error=None)
+    return ExecutionSuccess()
 ```
 
 ```python
-class ExecutionResult:
-    output_data: pa.Table | None
-    success: bool
-    error: str | None
+@dataclass
+class ExecutionSuccess:
+    pass  # all nodes executed, results are in target
+
+@dataclass
+class ExecutionFailure:
+    node_id: str        # which node failed
+    error: str          # error message
+
+ExecutionResult = ExecutionSuccess | ExecutionFailure
 ```
 
 ---
