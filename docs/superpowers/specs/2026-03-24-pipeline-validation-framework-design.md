@@ -52,8 +52,8 @@ The existing `PipelineEngine` (in `services/pipeline_engine.py`) is a single ~30
 **Responsibilities:**
 - Store pipeline definitions (logical plans)
 - Store derived metadata (inferred schemas, validation results, run history)
-- Manage pipeline lifecycle (draft → tested → optimized → running → completed)
-- Enforce preconditions (e.g., test must pass before run)
+- Manage pipeline lifecycle and validation status
+- Enforce preconditions via hash-based validation tracking
 - Trigger the execution engine
 
 **Does NOT:** process actual data.
@@ -147,11 +147,13 @@ The top-level container. Stored in the database.
 class PipelineDefinition:
     id: str
     name: str
-    status: PipelineStatus  # draft | tested | optimized | failed | running | completed
     nodes: list[Node]       # ordered sequence
+    current_hash: str       # hash of pipeline structure + all node configs
     created_at: datetime
     updated_at: datetime
 ```
+
+**`current_hash`** is a deterministic hash computed from the pipeline's structural content: the ordered node types, their configs, and connection settings. It changes whenever the user modifies any node or reorders the pipeline. It does NOT change on metadata updates (name, timestamps). The hash is recomputed on every save.
 
 **Note:** The pipeline is an ordered list, not a DAG. Branching/merging (multiple sources or targets) is a future enhancement. The current design assumes a linear chain: source → transform_1 → ... → transform_n → target.
 
@@ -170,9 +172,25 @@ class NodeMetadata:
 class PipelineMetadata:
     pipeline_id: str
     node_metadata: dict[str, NodeMetadata]
-    overall_status: str
-    last_tested_at: datetime | None
+    validated_hash: str | None      # hash of pipeline at time of last successful validation
+    validation_status: ValidationStatus  # DRAFT | VALIDATING | VALID | INVALID
+    last_validated_at: datetime | None
 ```
+
+**Validation status transitions:**
+
+```
+DRAFT → VALIDATING → VALID
+                   → INVALID → DRAFT (on edit)
+VALID → DRAFT (on edit, i.e. hash mismatch)
+```
+
+- **DRAFT** — pipeline has never been validated, or has been modified since last validation (`current_hash != validated_hash`)
+- **VALIDATING** — validation is currently in progress
+- **VALID** — all nodes validated successfully. `validated_hash` matches `current_hash` at the time validation passed
+- **INVALID** — validation failed. Must edit and re-validate
+
+**Hash comparison determines freshness:** When `current_hash == validated_hash` and `validation_status == VALID`, the pipeline is considered validated and can be run without re-validating. Editing any node changes `current_hash`, causing a mismatch, which resets `validation_status` to `DRAFT`.
 
 ### 4.5 Plans
 
@@ -531,48 +549,77 @@ class ExecutionResult:
 
 The single entry point for all pipeline actions. Enforces lifecycle preconditions and coordinates between the control plane and execution engine.
 
-### 9.1 Lifecycle States
+### 9.1 Validation Status vs Execution Status
+
+The pipeline has two independent status dimensions:
+
+**Validation status** (`PipelineMetadata.validation_status`) — tracks whether the pipeline definition is validated:
 
 ```
-draft → tested → running → completed
-          ↓         ↓
-        failed    failed
+DRAFT → VALIDATING → VALID
+                   → INVALID
+VALID → DRAFT (on edit — hash mismatch)
+INVALID → DRAFT (on edit)
 ```
 
-- **draft** — pipeline defined but not yet validated
-- **tested** — all nodes validated, schemas inferred and stored
-- **running** — execution in progress (optimization happens inline before execution starts)
-- **completed** — execution finished successfully
-- **failed** — validation or execution failed (can transition back to draft on edit)
+**Execution status** (`PipelineDefinition` or run record) — tracks the current execution state:
 
-Note: optimization is not a persisted state. It runs inline as part of `dry_run()` and `run()` — the optimizer produces an ephemeral execution plan that is used immediately and not stored. Editing any node resets the pipeline status to `draft`.
+```
+idle → running → completed
+                → failed
+```
+
+These are independent. A pipeline can be `VALID` (validation passed) and `idle` (not currently running). A pipeline can be run multiple times while remaining `VALID` — validation is not re-run unless the pipeline definition changes.
+
+**Hash-based validation freshness:** When the user edits any node, `current_hash` changes. On the next action that requires validation, the manager compares `current_hash` to `validated_hash`. If they differ, `validation_status` is set to `DRAFT` and validation must run before execution.
+
+Note: optimization is not a persisted state. It runs inline as part of `dry_run()` and `run()` — the optimizer produces an ephemeral execution plan that is used immediately and not stored.
 
 ### 9.2 Actions
 
 ```python
 class PipelineManager:
-    def test(self, pipeline_id) -> TestResult:
+    def can_run(self, pipeline_id) -> bool:
+        """Check if the pipeline can run without re-validation."""
+        pipeline = self.load_pipeline(pipeline_id)
+        metadata = self.load_metadata(pipeline_id)
+        return (
+            metadata.validation_status == ValidationStatus.VALID
+            and metadata.validated_hash == pipeline.current_hash
+        )
+
+    async def test(self, pipeline_id, reporter) -> TestResult:
         """Validate pipeline, infer schemas, store metadata."""
         pipeline = self.load_pipeline(pipeline_id)
+        metadata = self.load_metadata(pipeline_id)
+        metadata.validation_status = ValidationStatus.VALIDATING
+        self.store_metadata(pipeline_id, metadata)
+
         plan = build_logical_plan(pipeline)
         result = self.orchestrator.run_test(plan, sample_data, reporter)
 
-        # Store inferred schemas in metadata
-        self.store_metadata(pipeline_id, result)
-        self.update_status(pipeline_id, "tested" if result.success else "failed")
+        # Store inferred schemas and update validation status
+        metadata.node_metadata = result.node_metadata
+        if result.success:
+            metadata.validation_status = ValidationStatus.VALID
+            metadata.validated_hash = pipeline.current_hash
+        else:
+            metadata.validation_status = ValidationStatus.INVALID
+            metadata.validated_hash = None
+        metadata.last_validated_at = datetime.utcnow()
+        self.store_metadata(pipeline_id, metadata)
         return result
 
     async def dry_run(self, pipeline_id, reporter) -> ExecutionResult:
         """Optimize and execute on sample data without writing to target."""
         pipeline = self.load_pipeline(pipeline_id)
-        await self.ensure_tested(pipeline, reporter)
+        await self.ensure_valid(pipeline, reporter)
 
         metadata = self.load_metadata(pipeline_id)
         plan = build_logical_plan(pipeline)
         opt_context = OptimizationContext(schemas=metadata.schemas)
         exec_plan = self.optimizer.optimize(plan, opt_context)
 
-        # Source executor fetches sample data as the first step
         result = await self.orchestrator.run_execute(
             exec_plan, sample_data=None, reporter=reporter, allow_writes=False)
         return result
@@ -580,25 +627,37 @@ class PipelineManager:
     async def run(self, pipeline_id, reporter) -> ExecutionResult:
         """Execute the optimized pipeline with writes enabled."""
         pipeline = self.load_pipeline(pipeline_id)
-        await self.ensure_tested(pipeline, reporter)
+        await self.ensure_valid(pipeline, reporter)
 
         metadata = self.load_metadata(pipeline_id)
         plan = build_logical_plan(pipeline)
         opt_context = OptimizationContext(schemas=metadata.schemas)
         exec_plan = self.optimizer.optimize(plan, opt_context)
 
-        self.update_status(pipeline_id, "running")
         result = await self.orchestrator.run_execute(
             exec_plan, sample_data=None, reporter=reporter, allow_writes=True)
-        self.update_status(pipeline_id, "completed" if result.success else "failed")
         return result
+
+    async def ensure_valid(self, pipeline, reporter):
+        """Ensure pipeline is validated. Only re-validates if hash has changed."""
+        metadata = self.load_metadata(pipeline.id)
+        if (metadata.validation_status == ValidationStatus.VALID
+                and metadata.validated_hash == pipeline.current_hash):
+            return  # still valid, no work needed
+        # Hash changed or never validated — run test
+        result = await self.test(pipeline.id, reporter)
+        if not result.success:
+            raise PipelineValidationError("Pipeline validation failed")
 ```
 
 ### 9.3 Precondition Enforcement
 
-- `dry_run()` and `run()` require the pipeline to be in `tested` status (or later). If not, the manager runs `test()` first. If test fails, the action is aborted.
-- `run()` could optionally require `optimized` status (dry-run first), but this is not mandatory — the optimizer runs inline if needed.
-- Editing a node resets the pipeline status to `draft`, requiring re-testing.
+**Core invariant:** `run()` and `dry_run()` are allowed only when `validated_hash == current_hash AND validation_status == VALID`.
+
+- `dry_run()` and `run()` call `ensure_valid()`, which checks the hash. If the pipeline hasn't changed since last successful validation, it proceeds immediately — no re-validation.
+- If the hash has changed (user edited a node), `ensure_valid()` triggers `test()` automatically. If test fails, the action is aborted.
+- A validated pipeline can be run as many times as needed without re-validation, as long as its definition hasn't changed.
+- `current_hash` is recomputed on every pipeline save. If any node config, node order, or connection setting changes, the hash changes and `validation_status` effectively becomes stale (DRAFT).
 
 ---
 
@@ -763,7 +822,7 @@ No changes to: any execution or validation logic.
 
 ### 16.1 Concurrent Access
 
-The system is single-user for v1. The pipeline manager enforces that only one action runs per pipeline at a time via status checks — if a pipeline is in `running` status, subsequent `test()`, `dry_run()`, or `run()` calls are rejected. Future versions may add explicit locking for multi-user scenarios.
+The system is single-user for v1. The pipeline manager enforces that only one action runs per pipeline at a time — if a pipeline is currently executing or validating, subsequent `test()`, `dry_run()`, or `run()` calls are rejected. Future versions may add explicit locking for multi-user scenarios.
 
 ### 16.2 Target Write Safety
 
