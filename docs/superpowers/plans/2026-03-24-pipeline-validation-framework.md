@@ -75,6 +75,7 @@ pipeline/
 ```
 tests/pipeline/
 ├── __init__.py
+├── helpers.py                    # InMemoryDatabaseAdapter — real DatabaseAdapter backed by DuckDB
 ├── test_schema_types.py
 ├── test_schema_adapters.py
 ├── test_dag_graph.py
@@ -1390,15 +1391,79 @@ git commit -m "feat(pipeline): add SqlExecutor using DuckDB on Arrow tables"
 
 ---
 
-### Task 11: SourceExecutor and TargetExecutor
+### Task 11: SourceExecutor, TargetExecutor, and InMemoryDatabaseAdapter
 
 **Files:**
 - Create: `backend/src/vonnegut/pipeline/engine/executor/source_executor.py`
 - Create: `backend/src/vonnegut/pipeline/engine/executor/target_executor.py`
+- Create: `backend/tests/pipeline/helpers.py`
 
-These interact with real databases via the existing `DatabaseAdapter` interface. For now, implement with adapter dependency injection — full integration tests come later.
+These interact with real databases via the existing `DatabaseAdapter` interface. We also create an `InMemoryDatabaseAdapter` — a real implementation of `DatabaseAdapter` that serves data from memory using DuckDB. This is used throughout tests as a proper test double (not a stub/mock).
 
-- [ ] **Step 1: Implement SourceExecutor**
+- [ ] **Step 1: Create InMemoryDatabaseAdapter test helper**
+
+```python
+# backend/tests/pipeline/helpers.py
+from __future__ import annotations
+from typing import Any
+
+import duckdb
+
+from vonnegut.adapters.base import DatabaseAdapter, ColumnSchema
+
+
+class InMemoryDatabaseAdapter(DatabaseAdapter):
+    """A real DatabaseAdapter backed by an in-process DuckDB database.
+
+    Supports registering tables from dicts and executing real SQL against them.
+    Used as a test double that behaves like a real database — no hardcoded returns.
+    """
+
+    def __init__(self) -> None:
+        self._conn = duckdb.connect()
+        self._tables: dict[str, list[dict[str, Any]]] = {}
+
+    def seed_table(self, table_name: str, rows: list[dict[str, Any]]) -> None:
+        """Seed a table with data. Creates the table in DuckDB from the row dicts."""
+        self._tables[table_name] = rows
+        if rows:
+            self._conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+            self._conn.execute(
+                f"CREATE TABLE {table_name} AS SELECT * FROM rows",
+            )
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        self._conn.close()
+
+    async def execute(self, query: str, params: tuple = ()) -> list[dict[str, Any]]:
+        result = self._conn.execute(query).fetchall()
+        columns = [desc[0] for desc in self._conn.description]
+        return [dict(zip(columns, row)) for row in result]
+
+    async def fetch_tables(self) -> list[str]:
+        return list(self._tables.keys())
+
+    async def fetch_schema(self, table: str) -> list[ColumnSchema]:
+        result = self._conn.execute(f"DESCRIBE {table}").fetchall()
+        return [
+            ColumnSchema(
+                name=row[0], type=row[1], category="", nullable=True,
+                default=None, is_primary_key=False, foreign_key=None, is_unique=False,
+            )
+            for row in result
+        ]
+
+    async def fetch_sample(self, table: str, rows: int = 10) -> list[dict[str, Any]]:
+        return await self.execute(f"SELECT * FROM {table} LIMIT {rows}")
+
+    async def fetch_databases(self) -> list[str]:
+        return ["memory"]
+```
+
+- [ ] **Step 2: Implement SourceExecutor**
 
 ```python
 # backend/src/vonnegut/pipeline/engine/executor/source_executor.py
@@ -1472,11 +1537,11 @@ class TargetExecutor(NodeExecutor):
         return input_table
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add backend/src/vonnegut/pipeline/engine/executor/source_executor.py backend/src/vonnegut/pipeline/engine/executor/target_executor.py
-git commit -m "feat(pipeline): add SourceExecutor and TargetExecutor"
+git add backend/src/vonnegut/pipeline/engine/executor/source_executor.py backend/src/vonnegut/pipeline/engine/executor/target_executor.py backend/tests/pipeline/helpers.py
+git commit -m "feat(pipeline): add SourceExecutor, TargetExecutor, and InMemoryDatabaseAdapter test helper"
 ```
 
 ---
@@ -2110,31 +2175,32 @@ git commit -m "feat(pipeline): add PipelineValidator with SchemaCompatibilityRul
 import pyarrow as pa
 import pytest
 from vonnegut.pipeline.engine.orchestrator import PipelineOrchestrator
-from vonnegut.pipeline.engine.executor.base import NodeExecutor, ExecutorRegistry
+from vonnegut.pipeline.engine.executor.base import NodeExecutor
+from vonnegut.pipeline.engine.executor.code_executor import CodeExecutor
+from vonnegut.pipeline.engine.executor.sql_executor import SqlExecutor
+from vonnegut.pipeline.engine.executor.source_executor import SourceExecutor
+from vonnegut.pipeline.engine.executor.target_executor import TargetExecutor
 from vonnegut.pipeline.engine.validator.node_validator import NodeValidator
 from vonnegut.pipeline.engine.validator.pipeline_validator import PipelineValidator
-from vonnegut.pipeline.dag.node import Node, NodeType, SourceNodeConfig, SqlNodeConfig, TargetNodeConfig
+from vonnegut.pipeline.dag.node import Node, NodeType, SourceNodeConfig, SqlNodeConfig, CodeNodeConfig, TargetNodeConfig
 from vonnegut.pipeline.dag.edge import Edge
 from vonnegut.pipeline.dag.plan import LogicalPlan, PlanNode, PlanEdge
 from vonnegut.pipeline.results import ValidationSuccess, ValidationFailure, ExecutionSuccess, ExecutionFailure
 from vonnegut.pipeline.reporter.base import CollectorReporter
-
-
-class StubExecutor(NodeExecutor):
-    """Returns input unchanged (or empty table for source)."""
-    def __init__(self, output: pa.Table | None = None):
-        self._output = output
-
-    async def execute(self, context, inputs):
-        if self._output is not None:
-            return self._output
-        default = inputs.get("default")
-        return default if default is not None else pa.table({"id": [1, 2, 3]})
+from tests.pipeline.helpers import InMemoryDatabaseAdapter
 
 
 class FailingExecutor(NodeExecutor):
+    """Executor that always raises — used to test error propagation in the orchestrator."""
     async def execute(self, context, inputs):
         raise RuntimeError("Executor failed")
+
+
+@pytest.fixture
+def source_adapter() -> InMemoryDatabaseAdapter:
+    adapter = InMemoryDatabaseAdapter()
+    adapter.seed_table("t1", [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}, {"id": 3, "name": "charlie"}])
+    return adapter
 
 
 def _make_linear_plan() -> LogicalPlan:
@@ -2151,16 +2217,22 @@ def _make_linear_plan() -> LogicalPlan:
     )
 
 
+def _make_real_validators(source_adapter: InMemoryDatabaseAdapter) -> dict[NodeType, NodeValidator]:
+    """Build validators using real executors — no stubs."""
+    return {
+        NodeType.SOURCE: NodeValidator(executor=SourceExecutor(adapter_factory=None), rules=[]),
+        NodeType.SQL: NodeValidator(executor=SqlExecutor(), rules=[]),
+        NodeType.CODE: NodeValidator(executor=CodeExecutor(), rules=[]),
+        NodeType.TARGET: NodeValidator(executor=TargetExecutor(), rules=[]),
+    }
+
+
 class TestOrchestratorTestMode:
     @pytest.mark.asyncio
-    async def test_successful_linear_pipeline(self):
-        stub = StubExecutor()
-        registry = {}
-        for nt in NodeType:
-            registry[nt] = NodeValidator(executor=stub, rules=[])
-
+    async def test_successful_linear_pipeline(self, source_adapter):
+        validators = _make_real_validators(source_adapter)
         orchestrator = PipelineOrchestrator(
-            validator_registry=registry,
+            validator_registry=validators,
             pipeline_validator=PipelineValidator(),
         )
         reporter = CollectorReporter()
@@ -2172,17 +2244,13 @@ class TestOrchestratorTestMode:
         assert len(starts) == 3
 
     @pytest.mark.asyncio
-    async def test_stops_on_node_failure(self):
-        stub = StubExecutor()
-        fail = FailingExecutor()
-        registry = {
-            NodeType.SOURCE: NodeValidator(executor=stub, rules=[]),
-            NodeType.SQL: NodeValidator(executor=fail, rules=[]),
-            NodeType.TARGET: NodeValidator(executor=stub, rules=[]),
-        }
+    async def test_stops_on_node_failure(self, source_adapter):
+        validators = _make_real_validators(source_adapter)
+        # Override SQL executor with a failing one to test error propagation
+        validators[NodeType.SQL] = NodeValidator(executor=FailingExecutor(), rules=[])
 
         orchestrator = PipelineOrchestrator(
-            validator_registry=registry,
+            validator_registry=validators,
             pipeline_validator=PipelineValidator(),
         )
         reporter = CollectorReporter()
@@ -2625,13 +2693,23 @@ from vonnegut.pipeline.control_plane.pipeline_state import PipelineMetadata, Val
 from vonnegut.pipeline.dag.node import Node, NodeType, SourceNodeConfig, SqlNodeConfig, TargetNodeConfig
 from vonnegut.pipeline.dag.edge import Edge
 from vonnegut.pipeline.dag.graph import PipelineGraph
-from vonnegut.pipeline.engine.executor.base import NodeExecutor
+from vonnegut.pipeline.engine.executor.source_executor import SourceExecutor
+from vonnegut.pipeline.engine.executor.sql_executor import SqlExecutor
+from vonnegut.pipeline.engine.executor.code_executor import CodeExecutor
+from vonnegut.pipeline.engine.executor.target_executor import TargetExecutor
+from vonnegut.pipeline.engine.validator.node_validator import NodeValidator
+from vonnegut.pipeline.engine.validator.pipeline_validator import PipelineValidator
+from vonnegut.pipeline.engine.optimizer.optimizer import Optimizer
+from vonnegut.pipeline.engine.orchestrator import PipelineOrchestrator
 from vonnegut.pipeline.reporter.base import CollectorReporter
+from tests.pipeline.helpers import InMemoryDatabaseAdapter
 
 
-class StubExecutor(NodeExecutor):
-    async def execute(self, context, inputs):
-        return inputs.get("default", pa.table({"id": [1, 2, 3]}))
+@pytest.fixture
+def source_adapter() -> InMemoryDatabaseAdapter:
+    adapter = InMemoryDatabaseAdapter()
+    adapter.seed_table("t1", [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}])
+    return adapter
 
 
 class TestPipelineManager:
@@ -2644,12 +2722,23 @@ class TestPipelineManager:
             edges=[Edge(id="e1", from_node_id="src", to_node_id="tgt")],
         )
 
-    def _make_manager(self) -> PipelineManager:
-        return PipelineManager.create_default(stub_executor=StubExecutor())
+    def _make_manager(self, source_adapter: InMemoryDatabaseAdapter) -> PipelineManager:
+        """Build a PipelineManager with real executors and an in-memory database."""
+        validators = {
+            NodeType.SOURCE: NodeValidator(executor=SourceExecutor(adapter_factory=None), rules=[]),
+            NodeType.SQL: NodeValidator(executor=SqlExecutor(), rules=[]),
+            NodeType.CODE: NodeValidator(executor=CodeExecutor(), rules=[]),
+            NodeType.TARGET: NodeValidator(executor=TargetExecutor(), rules=[]),
+        }
+        orchestrator = PipelineOrchestrator(
+            validator_registry=validators,
+            pipeline_validator=PipelineValidator(),
+        )
+        return PipelineManager(orchestrator=orchestrator, optimizer=Optimizer())
 
     @pytest.mark.asyncio
-    async def test_validate_sets_status_valid(self):
-        manager = self._make_manager()
+    async def test_validate_sets_status_valid(self, source_adapter):
+        manager = self._make_manager(source_adapter)
         graph = self._make_graph()
         metadata = PipelineMetadata(pipeline_id="p1")
         reporter = CollectorReporter()
@@ -2661,8 +2750,8 @@ class TestPipelineManager:
         assert metadata.validated_hash is not None
 
     @pytest.mark.asyncio
-    async def test_can_run_after_validation(self):
-        manager = self._make_manager()
+    async def test_can_run_after_validation(self, source_adapter):
+        manager = self._make_manager(source_adapter)
         graph = self._make_graph()
         metadata = PipelineMetadata(pipeline_id="p1")
 
@@ -2670,15 +2759,15 @@ class TestPipelineManager:
         assert manager.can_run(graph, metadata)
 
     @pytest.mark.asyncio
-    async def test_cannot_run_without_validation(self):
-        manager = self._make_manager()
+    async def test_cannot_run_without_validation(self, source_adapter):
+        manager = self._make_manager(source_adapter)
         graph = self._make_graph()
         metadata = PipelineMetadata(pipeline_id="p1")
         assert not manager.can_run(graph, metadata)
 
     @pytest.mark.asyncio
-    async def test_hash_change_invalidates(self):
-        manager = self._make_manager()
+    async def test_hash_change_invalidates(self, source_adapter):
+        manager = self._make_manager(source_adapter)
         graph = self._make_graph()
         metadata = PipelineMetadata(pipeline_id="p1")
 
@@ -2712,6 +2801,8 @@ from vonnegut.pipeline.engine.validator.pipeline_validator import PipelineValida
 from vonnegut.pipeline.engine.optimizer.optimizer import Optimizer
 from vonnegut.pipeline.engine.optimizer.rules.base import OptimizationContext
 from vonnegut.pipeline.engine.executor.base import NodeExecutor, ExecutorRegistry
+from vonnegut.pipeline.engine.executor.source_executor import SourceExecutor
+from vonnegut.pipeline.engine.executor.target_executor import TargetExecutor
 from vonnegut.pipeline.reporter.base import Reporter, NullReporter
 from vonnegut.pipeline.results import ExecutionResult, ExecutionFailure
 
@@ -2730,20 +2821,27 @@ class PipelineManager:
         self._optimizer = optimizer
 
     @classmethod
-    def create_default(cls, stub_executor: NodeExecutor | None = None) -> PipelineManager:
-        """Create a PipelineManager with default configuration. Pass stub_executor for testing."""
+    def create_default(
+        cls,
+        source_executor: NodeExecutor | None = None,
+        target_executor: NodeExecutor | None = None,
+    ) -> PipelineManager:
+        """Create a PipelineManager with default configuration.
+
+        Pass source_executor/target_executor to inject adapters for different environments.
+        SQL and Code executors use in-process engines (DuckDB, polars) and need no injection.
+        """
+        from vonnegut.pipeline.engine.executor.code_executor import CodeExecutor
+        from vonnegut.pipeline.engine.executor.sql_executor import SqlExecutor
         from vonnegut.pipeline.engine.validator.rules.code_rules import SyntaxCheckRule, ColumnNameRule
         from vonnegut.pipeline.engine.validator.rules.sql_rules import SqlParseRule
 
-        executor = stub_executor
-        validators: dict[NodeType, NodeValidator] = {}
-        for nt in NodeType:
-            rules = []
-            if nt == NodeType.CODE:
-                rules = [SyntaxCheckRule(), ColumnNameRule()]
-            elif nt == NodeType.SQL:
-                rules = [SqlParseRule()]
-            validators[nt] = NodeValidator(executor=executor, rules=rules)
+        validators: dict[NodeType, NodeValidator] = {
+            NodeType.SOURCE: NodeValidator(executor=source_executor or SourceExecutor(adapter_factory=None), rules=[]),
+            NodeType.SQL: NodeValidator(executor=SqlExecutor(), rules=[SqlParseRule()]),
+            NodeType.CODE: NodeValidator(executor=CodeExecutor(), rules=[SyntaxCheckRule(), ColumnNameRule()]),
+            NodeType.TARGET: NodeValidator(executor=target_executor or TargetExecutor(), rules=[]),
+        }
 
         orchestrator = PipelineOrchestrator(
             validator_registry=validators,
