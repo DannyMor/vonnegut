@@ -13,6 +13,7 @@ dependencies = [
     "anthropic>=0.85.0",
     "duckdb>=1.5.0",
     "polars>=1.39.2",
+    "pyarrow>=18.0.0",
     "sqlglot>=30.0.3",
 ]
 
