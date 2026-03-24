@@ -22,24 +22,38 @@ export function ConnectionsPage() {
   useEffect(() => { load(); }, [load]);
 
   const handleSave = async (data: ConnectionCreate) => {
-    if (editing) {
-      await api.connections.update(editing.id, data);
-    } else {
-      await api.connections.create(data);
+    try {
+      if (editing) {
+        await api.connections.update(editing.id, data);
+      } else {
+        await api.connections.create(data);
+      }
+      setEditing(null);
+      load();
+    } catch (e) {
+      console.error("Failed to save connection:", e);
+      throw e;
     }
-    setEditing(null);
-    load();
   };
 
   const handleDelete = async (id: string) => {
-    await api.connections.delete(id);
-    load();
+    try {
+      await api.connections.delete(id);
+      load();
+    } catch (e) {
+      console.error("Failed to delete connection:", e);
+    }
   };
 
   const handleTest = async (id: string) => {
-    setTestResults((prev) => ({ ...prev, [id]: "testing" }));
-    const result = await api.connections.test(id);
-    setTestResults((prev) => ({ ...prev, [id]: result.status }));
+    try {
+      setTestResults((prev) => ({ ...prev, [id]: "testing" }));
+      const result = await api.connections.test(id);
+      setTestResults((prev) => ({ ...prev, [id]: result.status }));
+    } catch (e) {
+      console.error("Failed to test connection:", e);
+      setTestResults((prev) => ({ ...prev, [id]: "error" }));
+    }
   };
 
   return (

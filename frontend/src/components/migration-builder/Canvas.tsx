@@ -1,114 +1,252 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import {
-  ReactFlow,
-  Background,
-  Controls,
-  type Node,
-  type Edge,
-  type NodeTypes,
-  useNodesState,
-  useEdgesState,
+  ReactFlow, Background, useReactFlow, ReactFlowProvider,
+  useNodesInitialized, applyNodeChanges,
+  type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { AlignHorizontalSpaceAround, Magnet } from "lucide-react";
 import { SourceNode } from "./nodes/SourceNode";
 import { TargetNode } from "./nodes/TargetNode";
-import { TransformNode } from "./nodes/TransformNode";
+import { PipelineNode } from "./nodes/PipelineNode";
+import { AddStepEdge } from "./edges/AddStepEdge";
 import type { Migration } from "@/types/migration";
+import type { StepType, StepResult } from "@/types/pipeline";
 
 interface Props {
   migration: Migration;
-  onNodeClick: (nodeId: string, nodeType: string) => void;
+  testResults: StepResult[] | null;
+  selectedNodeId: string | null;
+  panelOpen: boolean;
+  onNodeClick: (nodeId: string) => void;
+  onCanvasClick: () => void;
+  onAddStep: (type: StepType, afterNodeId: string) => void;
+  onDeleteStep: (stepId: string) => void;
 }
 
-export function Canvas({ migration, onNodeClick }: Props) {
-  const nodeTypes: NodeTypes = useMemo(
-    () => ({
-      source: SourceNode,
-      target: TargetNode,
-      transform: TransformNode,
-    }),
-    []
+const NODE_SPACING = 350;
+const CENTER_Y = 150;
+const FIT_OPTIONS = { padding: 0.5, maxZoom: 0.85, duration: 200 };
+
+function buildNodeData(migration: Migration, testResults: StepResult[] | null, selectedNodeId: string | null, onDeleteStep: (id: string) => void): Node[] {
+  const steps = migration.pipeline_steps || [];
+  const result: Node[] = [];
+
+  result.push({
+    id: "source",
+    type: "source",
+    position: { x: 0, y: CENTER_Y },
+    selected: selectedNodeId === "source",
+    data: {
+      connectionName: "",
+      table: migration.source_table || "Not configured",
+      schemaCount: migration.source_schema?.length || null,
+      label: migration.source_label,
+    },
+  });
+
+  steps.forEach((step, i) => {
+    const stepResult = testResults?.find((r) => r.node_id === step.id);
+    result.push({
+      id: step.id,
+      type: "pipeline",
+      position: { x: (i + 1) * NODE_SPACING, y: CENTER_Y },
+      selected: selectedNodeId === step.id,
+      data: {
+        name: step.name,
+        stepType: step.step_type,
+        description: step.description,
+        schemaCount: stepResult?.schema?.length ?? null,
+        onDelete: onDeleteStep,
+      },
+    });
+  });
+
+  result.push({
+    id: "target",
+    type: "target",
+    position: { x: (steps.length + 1) * NODE_SPACING, y: CENTER_Y },
+    selected: selectedNodeId === "target",
+    data: {
+      connectionName: "",
+      table: migration.target_table || "Not configured",
+      schemaCount: null,
+      validationStatus: "unknown",
+      label: migration.target_label,
+    },
+  });
+
+  return result;
+}
+
+/** Adjust Y positions so all node centers sit on the same horizontal line. */
+function centerAlignNodes(nodes: Node[]): Node[] {
+  const maxHeight = Math.max(...nodes.map(n => n.measured?.height ?? 0));
+  if (maxHeight === 0) return nodes;
+  return nodes.map(n => {
+    const h = n.measured?.height ?? 0;
+    const offset = (maxHeight - h) / 2;
+    return { ...n, position: { ...n.position, y: CENTER_Y + offset } };
+  });
+}
+
+function CanvasInner({
+  migration, testResults, selectedNodeId, panelOpen,
+  onNodeClick, onCanvasClick, onAddStep, onDeleteStep,
+}: Props) {
+  const nodeTypes: NodeTypes = useMemo(() => ({
+    source: SourceNode,
+    target: TargetNode,
+    pipeline: PipelineNode,
+  }), []);
+
+  const edgeTypes: EdgeTypes = useMemo(() => ({
+    addStep: AddStepEdge,
+  }), []);
+
+  const steps = migration.pipeline_steps || [];
+  const { fitView, getNodes } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+
+  const nodeIdKey = ["source", ...steps.map(s => s.id), "target"].join(",");
+  const prevNodeIdKeyRef = useRef(nodeIdKey);
+  const hasCenterAlignedRef = useRef(false);
+  const [autoFit, setAutoFit] = useState(true);
+
+  const [nodes, setNodes] = useState<Node[]>(() =>
+    buildNodeData(migration, testResults, selectedNodeId, onDeleteStep)
   );
 
-  const initialNodes: Node[] = useMemo(() => {
-    const nodes: Node[] = [
-      {
-        id: "source",
-        type: "source",
-        position: { x: 50, y: 200 },
-        data: {
-          label: "Source",
-          table: migration.source_table || "Select table...",
-        },
-      },
-      {
-        id: "target",
-        type: "target",
-        position: { x: 700, y: 200 },
-        data: {
-          label: "Target",
-          table: migration.target_table || "Select table...",
-        },
-      },
-    ];
+  const doFitView = useCallback(() => {
+    setTimeout(() => fitView(FIT_OPTIONS), 50);
+  }, [fitView]);
 
-    migration.transformations.forEach((t, i) => {
-      nodes.push({
-        id: t.id,
-        type: "transform",
-        position: { x: 250 + i * 200, y: 200 },
-        data: {
-          label: t.type === "column_mapping" ? "Mapping" : t.type === "ai_generated" ? "AI Transform" : "Expression",
-          transformType: t.type,
-          config: t.config,
-        },
-      });
-    });
-
-    return nodes;
-  }, [migration]);
-
-  const initialEdges: Edge[] = useMemo(() => {
-    const edges: Edge[] = [];
-    const transformIds = migration.transformations.map((t) => t.id);
-
-    if (transformIds.length === 0) {
-      edges.push({ id: "source-target", source: "source", target: "target" });
-    } else {
-      edges.push({ id: `source-${transformIds[0]}`, source: "source", target: transformIds[0] });
-      for (let i = 0; i < transformIds.length - 1; i++) {
-        edges.push({ id: `${transformIds[i]}-${transformIds[i + 1]}`, source: transformIds[i], target: transformIds[i + 1] });
+  // After nodes are measured, center-align them vertically
+  useEffect(() => {
+    if (nodesInitialized && !hasCenterAlignedRef.current) {
+      hasCenterAlignedRef.current = true;
+      const measured = getNodes();
+      if (measured.some(n => n.measured?.height)) {
+        setNodes(prev => {
+          const withMeasures = prev.map(n => {
+            const m = measured.find(mn => mn.id === n.id);
+            return m?.measured ? { ...n, measured: m.measured } : n;
+          });
+          return centerAlignNodes(withMeasures);
+        });
+        doFitView();
       }
-      edges.push({ id: `${transformIds[transformIds.length - 1]}-target`, source: transformIds[transformIds.length - 1], target: "target" });
+    }
+  }, [nodesInitialized, getNodes, doFitView]);
+
+  // When structure changes (nodes added/removed), rebuild layout
+  useEffect(() => {
+    if (nodeIdKey !== prevNodeIdKeyRef.current) {
+      prevNodeIdKeyRef.current = nodeIdKey;
+      hasCenterAlignedRef.current = false;
+      setNodes(buildNodeData(migration, testResults, selectedNodeId, onDeleteStep));
+    }
+  }, [nodeIdKey, migration, testResults, selectedNodeId, onDeleteStep]);
+
+  // When data changes (but not structure), update data + selected without resetting positions
+  useEffect(() => {
+    const freshNodes = buildNodeData(migration, testResults, selectedNodeId, onDeleteStep);
+    setNodes(prev => prev.map(n => {
+      const fresh = freshNodes.find(f => f.id === n.id);
+      if (!fresh) return n;
+      return { ...n, data: fresh.data, selected: fresh.selected };
+    }));
+  }, [migration, testResults, selectedNodeId, onDeleteStep]);
+
+  // Re-fit when the bottom panel opens or closes (canvas size changes)
+  const prevPanelOpenRef = useRef(panelOpen);
+  useEffect(() => {
+    if (prevPanelOpenRef.current !== panelOpen) {
+      prevPanelOpenRef.current = panelOpen;
+      if (autoFit) {
+        doFitView();
+      }
+    }
+  }, [panelOpen, autoFit, doFitView]);
+
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes(prev => applyNodeChanges(changes, prev));
+  }, []);
+
+  const handleAutoAlign = useCallback(() => {
+    const measured = getNodes();
+    const fresh = buildNodeData(migration, testResults, selectedNodeId, onDeleteStep).map(n => {
+      const m = measured.find(mn => mn.id === n.id);
+      return m?.measured ? { ...n, measured: m.measured } : n;
+    });
+    setNodes(centerAlignNodes(fresh));
+    doFitView();
+  }, [migration, testResults, selectedNodeId, onDeleteStep, doFitView, getNodes]);
+
+  const edges: Edge[] = useMemo(() => {
+    const result: Edge[] = [];
+    const nodeIds = ["source", ...steps.map(s => s.id), "target"];
+
+    for (let i = 0; i < nodeIds.length - 1; i++) {
+      result.push({
+        id: `${nodeIds[i]}-${nodeIds[i + 1]}`,
+        source: nodeIds[i],
+        target: nodeIds[i + 1],
+        type: "addStep",
+        data: { onAddStep, sourceNodeId: nodeIds[i] },
+      });
     }
 
-    return edges;
-  }, [migration]);
+    return result;
+  }, [steps, onAddStep]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
-
-  const handleNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
-      onNodeClick(node.id, node.type || "");
-    },
-    [onNodeClick]
-  );
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    onNodeClick(node.id);
+  }, [onNodeClick]);
 
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
+        onPaneClick={onCanvasClick}
         fitView
+        fitViewOptions={FIT_OPTIONS}
       >
         <Background />
-        <Controls />
       </ReactFlow>
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+        <button
+          onClick={() => setAutoFit(f => !f)}
+          title={autoFit ? "Auto-fit enabled (click to disable)" : "Auto-fit disabled (click to enable)"}
+          className={`p-1.5 rounded border transition-colors ${
+            autoFit
+              ? "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+              : "bg-background border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          <Magnet className="h-4 w-4" />
+        </button>
+        <button
+          onClick={handleAutoAlign}
+          title="Auto-align and fit"
+          className="p-1.5 rounded border bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <AlignHorizontalSpaceAround className="h-4 w-4" />
+        </button>
+      </div>
     </div>
+  );
+}
+
+export function Canvas(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <CanvasInner {...props} />
+    </ReactFlowProvider>
   );
 }

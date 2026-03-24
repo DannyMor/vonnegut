@@ -1,5 +1,10 @@
 # backend/src/vonnegut/services/migration_runner.py
-import threading
+import asyncio
+import logging
+
+from psycopg import sql
+
+logger = logging.getLogger(__name__)
 
 from vonnegut.adapters.base import DatabaseAdapter
 from vonnegut.services.transformation_engine import TransformationEngine
@@ -32,12 +37,14 @@ class MigrationRunner:
         row_limit: int,
         batch_size: int,
         on_progress,
-        cancel_flag: threading.Event,
+        cancel_flag: asyncio.Event,
     ) -> dict:
         """Execute the full migration."""
-        count_result = await source_adapter.execute(
-            f"SELECT COUNT(*) as count FROM {source_table}"
+        logger.info("Starting migration: %s -> %s", source_table, target_table)
+        count_query = sql.SQL("SELECT COUNT(*) as count FROM {}").format(
+            sql.Identifier(source_table)
         )
+        count_result = await source_adapter.execute(count_query.as_string(None))
         total_rows = count_result[0]["count"]
 
         if total_rows > row_limit:
@@ -46,7 +53,8 @@ class MigrationRunner:
                 "Consider filtering or wait for future batching support."
             )
 
-        all_rows = await source_adapter.execute(f"SELECT * FROM {source_table}")
+        select_query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(source_table))
+        all_rows = await source_adapter.execute(select_query.as_string(None))
         transformed = self._engine.apply_pipeline(all_rows, transformations)
 
         if not transformed:
@@ -56,7 +64,15 @@ class MigrationRunner:
         rows_processed = 0
 
         if truncate_target:
-            await target_adapter.execute(f"TRUNCATE TABLE {target_table}")
+            truncate_query = sql.SQL("TRUNCATE TABLE {}").format(sql.Identifier(target_table))
+            await target_adapter.execute(truncate_query.as_string(None))
+
+        col_ids = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+        placeholders = sql.SQL(", ").join(sql.Placeholder() * len(columns))
+        insert_query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+            sql.Identifier(target_table), col_ids, placeholders,
+        )
+        insert_str = insert_query.as_string(None)
 
         for i in range(0, len(transformed), batch_size):
             if cancel_flag.is_set():
@@ -64,13 +80,8 @@ class MigrationRunner:
 
             batch = transformed[i : i + batch_size]
             for row in batch:
-                placeholders = ", ".join(["%s"] * len(columns))
-                col_names = ", ".join(columns)
                 values = tuple(row[c] for c in columns)
-                await target_adapter.execute(
-                    f"INSERT INTO {target_table} ({col_names}) VALUES ({placeholders})",
-                    values,
-                )
+                await target_adapter.execute(insert_str, values)
             rows_processed += len(batch)
             await on_progress(rows_processed, total_rows)
 

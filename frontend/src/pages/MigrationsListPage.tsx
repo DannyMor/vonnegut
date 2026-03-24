@@ -21,21 +21,30 @@ const statusColors: Record<MigrationStatus, string> = {
 
 export function MigrationsListPage() {
   const [migrations, setMigrations] = useState<Migration[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const load = useCallback(async () => {
-    setMigrations(await api.migrations.list());
+    try {
+      setMigrations(await api.migrations.list());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load migrations");
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     navigate("/migrations/new");
   };
 
   const handleDelete = async (id: string) => {
-    await api.migrations.delete(id);
-    load();
+    try {
+      await api.migrations.delete(id);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete migration");
+    }
   };
 
   return (
@@ -50,10 +59,15 @@ export function MigrationsListPage() {
           </Button>
         }
       />
+      {error && (
+        <div className="mx-6 mt-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
       <div className="p-6 max-w-4xl">
         <div className="grid gap-3">
           {migrations.map((mig) => (
-            <Card key={mig.id} className="flex items-center justify-between p-4">
+            <Card key={mig.id} className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors" onDoubleClick={() => navigate(`/migrations/${mig.id}`)}>
               <div>
                 <div className="font-medium">{mig.name}</div>
                 <div className="text-sm text-muted-foreground">

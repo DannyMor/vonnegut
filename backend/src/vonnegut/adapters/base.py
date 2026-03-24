@@ -5,10 +5,14 @@ from typing import Any, Protocol
 
 @dataclass
 class ColumnSchema:
-    column: str
+    name: str
     type: str
+    category: str
     nullable: bool
+    default: str | None
     is_primary_key: bool
+    foreign_key: str | None   # "table.column" or None
+    is_unique: bool
 
 
 class DatabaseAdapter(ABC):

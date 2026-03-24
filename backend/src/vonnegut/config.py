@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     model_config = {"env_prefix": "VONNEGUT_"}
 
     database_url: str = "sqlite+aiosqlite:///./vonnegut.db"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5174"]
     secret_key: str | None = None
     anthropic_api_key: str | None = None
     migration_row_limit: int = 100_000

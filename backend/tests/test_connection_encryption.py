@@ -34,13 +34,13 @@ def test_encrypt_config_without_password():
 def test_roundtrip_preserves_all_fields():
     key = get_or_create_key(env_key="TEST_KEY_NOT_SET")
     config = {
+        "type": "postgres_pod",
         "namespace": "prod",
-        "pod_name": "pg-0",
-        "container": "postgres",
+        "pod_selector": "app=postgres",
+        "host": "postgres.prod.svc",
         "database": "mydb",
         "user": "admin",
         "password": "pod-secret",
-        "local_port": 15432,
     }
     encrypted = encrypt_config(config, key)
     decrypted = decrypt_config(encrypted, key)

@@ -4,7 +4,6 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS connections (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('postgres_direct', 'postgres_pod')),
     config TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -17,12 +16,26 @@ CREATE TABLE IF NOT EXISTS migrations (
     target_connection_id TEXT NOT NULL REFERENCES connections(id),
     source_table TEXT NOT NULL,
     target_table TEXT NOT NULL,
+    source_query TEXT NOT NULL DEFAULT '',
+    source_schema TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK(status IN ('draft', 'testing', 'running', 'completed', 'failed', 'cancelled')),
     truncate_target INTEGER NOT NULL DEFAULT 0,
     rows_processed INTEGER,
     total_rows INTEGER,
     error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_steps (
+    id TEXT PRIMARY KEY,
+    migration_id TEXT NOT NULL REFERENCES migrations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    position INTEGER NOT NULL,
+    step_type TEXT NOT NULL CHECK(step_type IN ('sql', 'code', 'ai')),
+    config TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -50,6 +63,7 @@ class Database:
         self._conn.row_factory = aiosqlite.Row
         await self._conn.executescript(_SCHEMA)
         await self._conn.execute("PRAGMA foreign_keys = ON")
+        await self._conn.execute("PRAGMA journal_mode = WAL")
         await self._conn.commit()
 
     async def close(self):

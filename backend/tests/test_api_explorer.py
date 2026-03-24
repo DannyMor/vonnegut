@@ -15,8 +15,8 @@ def test_adapter():
     return InMemoryAdapter(tables={
         "users": {
             "schema": [
-                ColumnSchema(column="id", type="integer", nullable=False, is_primary_key=True),
-                ColumnSchema(column="name", type="text", nullable=True, is_primary_key=False),
+                ColumnSchema(name="id", type="int4", category="number", nullable=False, default=None, is_primary_key=True, foreign_key=None, is_unique=False),
+                ColumnSchema(name="name", type="text", category="string", nullable=True, default=None, is_primary_key=False, foreign_key=None, is_unique=False),
             ],
             "rows": [
                 {"id": 1, "name": "Alice"},
@@ -25,7 +25,7 @@ def test_adapter():
         },
         "orders": {
             "schema": [
-                ColumnSchema(column="id", type="integer", nullable=False, is_primary_key=True),
+                ColumnSchema(name="id", type="int4", category="number", nullable=False, default=None, is_primary_key=True, foreign_key=None, is_unique=False),
             ],
             "rows": [{"id": 1}],
         },
@@ -51,8 +51,8 @@ async def client(app):
 
 async def _create_connection(client):
     resp = await client.post("/api/v1/connections", json={
-        "name": "Test DB", "type": "postgres_direct",
-        "config": {"host": "localhost", "port": 5432, "database": "db", "user": "u", "password": "p"},
+        "name": "Test DB",
+        "config": {"type": "postgres_direct", "host": "localhost", "port": 5432, "database": "db", "user": "u", "password": "p"},
     })
     return resp.json()["id"]
 
@@ -72,7 +72,7 @@ async def test_get_table_schema(client):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 2
-    assert data[0]["column"] == "id"
+    assert data[0]["name"] == "id"
     assert data[0]["is_primary_key"] is True
 
 

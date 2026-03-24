@@ -17,7 +17,11 @@ class InMemoryAdapter(DatabaseAdapter):
         """Helper for tests — add a table with rows (auto-generates schema)."""
         if rows:
             schema = [
-                ColumnSchema(column=col, type="text", nullable=True, is_primary_key=False)
+                ColumnSchema(
+                    name=col, type="text", category="text",
+                    nullable=True, default=None,
+                    is_primary_key=False, foreign_key=None, is_unique=False,
+                )
                 for col in rows[0].keys()
             ]
         else:
@@ -66,7 +70,7 @@ class InMemoryAdapter(DatabaseAdapter):
                 columns = [c.strip().lower() for c in col_str.split(",")]
             else:
                 schema = self._tables[table_key]["schema"]
-                columns = [col.column for col in schema]
+                columns = [col.name for col in schema]
             row = dict(zip(columns, params))
             self._tables[table_key]["rows"].append(row)
             return []

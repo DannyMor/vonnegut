@@ -1,4 +1,5 @@
 import type { Transformation } from "./transformation";
+import type { PipelineStep, ColumnDef } from "./pipeline";
 
 export type MigrationStatus =
   | "draft"
@@ -15,6 +16,8 @@ export interface Migration {
   target_connection_id: string;
   source_table: string;
   target_table: string;
+  source_query: string;
+  source_schema: ColumnDef[];
   status: MigrationStatus;
   truncate_target: boolean;
   rows_processed: number | null;
@@ -23,6 +26,12 @@ export interface Migration {
   created_at: string;
   updated_at: string;
   transformations: Transformation[];
+  pipeline_steps: PipelineStep[];
+  // Frontend-only display fields (not persisted)
+  source_label?: string;
+  target_label?: string;
+  source_description?: string;
+  target_description?: string;
 }
 
 export interface MigrationCreate {
@@ -31,6 +40,8 @@ export interface MigrationCreate {
   target_connection_id: string;
   source_table: string;
   target_table: string;
+  source_query?: string;
+  source_schema?: ColumnDef[];
   truncate_target?: boolean;
 }
 

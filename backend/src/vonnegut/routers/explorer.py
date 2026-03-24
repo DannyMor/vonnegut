@@ -12,53 +12,39 @@ def _get_adapter_factory(request: Request):
     return request.app.state.adapter_factory
 
 
-@router.get("/connections/{conn_id}/databases")
-async def list_databases(conn_id: str, request: Request):
+async def _with_adapter(conn_id: str, request: Request, fn):
+    """Helper: resolve connection, create adapter, run fn, handle errors."""
     manager = _get_manager(request)
     conn = await manager.get(conn_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
-    adapter = await _get_adapter_factory(request).create(conn)
     try:
-        return await adapter.fetch_databases()
+        adapter = await _get_adapter_factory(request).create(conn)
+    except ConnectionError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    try:
+        return await fn(adapter)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     finally:
         await adapter.disconnect()
+
+
+@router.get("/connections/{conn_id}/databases")
+async def list_databases(conn_id: str, request: Request):
+    return await _with_adapter(conn_id, request, lambda a: a.fetch_databases())
 
 
 @router.get("/connections/{conn_id}/tables")
 async def list_tables(conn_id: str, request: Request):
-    manager = _get_manager(request)
-    conn = await manager.get(conn_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="Connection not found")
-    adapter = await _get_adapter_factory(request).create(conn)
-    try:
-        return await adapter.fetch_tables()
-    finally:
-        await adapter.disconnect()
+    return await _with_adapter(conn_id, request, lambda a: a.fetch_tables())
 
 
 @router.get("/connections/{conn_id}/tables/{table}/schema")
 async def get_table_schema(conn_id: str, table: str, request: Request):
-    manager = _get_manager(request)
-    conn = await manager.get(conn_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="Connection not found")
-    adapter = await _get_adapter_factory(request).create(conn)
-    try:
-        return await adapter.fetch_schema(table)
-    finally:
-        await adapter.disconnect()
+    return await _with_adapter(conn_id, request, lambda a: a.fetch_schema(table))
 
 
 @router.get("/connections/{conn_id}/tables/{table}/sample")
-async def get_table_sample(conn_id: str, table: str, request: Request, rows: int = Query(default=10)):
-    manager = _get_manager(request)
-    conn = await manager.get(conn_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="Connection not found")
-    adapter = await _get_adapter_factory(request).create(conn)
-    try:
-        return await adapter.fetch_sample(table, rows=rows)
-    finally:
-        await adapter.disconnect()
+async def get_table_sample(conn_id: str, table: str, request: Request, rows: int = Query(default=10, ge=1, le=1000)):
+    return await _with_adapter(conn_id, request, lambda a: a.fetch_sample(table, rows=rows))

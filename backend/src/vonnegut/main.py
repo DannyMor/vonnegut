@@ -12,6 +12,7 @@ from vonnegut.routers.ai import router as ai_router
 from vonnegut.routers.connections import router as connections_router
 from vonnegut.routers.explorer import router as explorer_router
 from vonnegut.routers.migrations import router as migrations_router
+from vonnegut.routers.pipeline_steps import router as pipeline_steps_router
 from vonnegut.routers.transformations import router as transformations_router
 from vonnegut.services.connection_manager import ConnectionManager
 
@@ -57,10 +58,15 @@ def create_app(
         db=app.state.db, encryption_key=app.state.encryption_key,
     )
 
+    @app.get("/api/health")
+    def health():
+        return {"status": "ok"}
+
     app.include_router(ai_router, prefix="/api/v1")
     app.include_router(connections_router, prefix="/api/v1")
     app.include_router(explorer_router, prefix="/api/v1")
     app.include_router(migrations_router, prefix="/api/v1")
+    app.include_router(pipeline_steps_router, prefix="/api/v1")
     app.include_router(transformations_router, prefix="/api/v1")
 
     return app

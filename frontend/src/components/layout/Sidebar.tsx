@@ -1,6 +1,6 @@
 // frontend/src/components/layout/Sidebar.tsx
 import { useState } from "react";
-import { NavLink } from "react-router";
+import { NavLink, Link } from "react-router";
 import { icons } from "@/config/iconRegistry";
 import { PanelLeftClose, PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,12 +19,12 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r bg-muted/40 transition-all",
+        "flex h-screen flex-col border-r bg-background transition-all",
         collapsed ? "w-16" : "w-56"
       )}
     >
       <div className="flex h-14 items-center justify-between px-4">
-        {!collapsed && <span className="text-lg font-semibold">Vonnegut</span>}
+        {!collapsed && <Link to="/" className="text-lg font-semibold hover:text-primary transition-colors">Vonnegut</Link>}
         <Button variant="ghost" size="icon" onClick={() => setCollapsed(!collapsed)}>
           {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </Button>

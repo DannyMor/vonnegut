@@ -47,8 +47,8 @@ async def client(app):
 @pytest.mark.asyncio
 async def test_connection_test_success(client):
     create_resp = await client.post("/api/v1/connections", json={
-        "name": "Test", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "Test",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     conn_id = create_resp.json()["id"]
 
@@ -66,8 +66,8 @@ async def test_connection_test_failure(tmp_path, encryption_key):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         create_resp = await client.post("/api/v1/connections", json={
-            "name": "Bad", "type": "postgres_direct",
-            "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+            "name": "Bad",
+            "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
         })
         conn_id = create_resp.json()["id"]
 

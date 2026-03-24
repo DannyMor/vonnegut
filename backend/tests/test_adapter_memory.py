@@ -9,9 +9,9 @@ def adapter():
     tables = {
         "users": {
             "schema": [
-                ColumnSchema(column="id", type="integer", nullable=False, is_primary_key=True),
-                ColumnSchema(column="name", type="text", nullable=True, is_primary_key=False),
-                ColumnSchema(column="email", type="text", nullable=False, is_primary_key=False),
+                ColumnSchema(name="id", type="int4", category="number", nullable=False, default=None, is_primary_key=True, foreign_key=None, is_unique=False),
+                ColumnSchema(name="name", type="text", category="text", nullable=True, default=None, is_primary_key=False, foreign_key=None, is_unique=False),
+                ColumnSchema(name="email", type="text", category="text", nullable=False, default=None, is_primary_key=False, foreign_key=None, is_unique=True),
             ],
             "rows": [
                 {"id": 1, "name": "Alice", "email": "alice@example.com"},
@@ -21,9 +21,9 @@ def adapter():
         },
         "orders": {
             "schema": [
-                ColumnSchema(column="id", type="integer", nullable=False, is_primary_key=True),
-                ColumnSchema(column="user_id", type="integer", nullable=False, is_primary_key=False),
-                ColumnSchema(column="amount", type="numeric", nullable=False, is_primary_key=False),
+                ColumnSchema(name="id", type="int4", category="number", nullable=False, default=None, is_primary_key=True, foreign_key=None, is_unique=False),
+                ColumnSchema(name="user_id", type="int4", category="number", nullable=False, default=None, is_primary_key=False, foreign_key="users.id", is_unique=False),
+                ColumnSchema(name="amount", type="numeric", category="number", nullable=False, default=None, is_primary_key=False, foreign_key=None, is_unique=False),
             ],
             "rows": [
                 {"id": 1, "user_id": 1, "amount": 99.99},
@@ -54,10 +54,19 @@ async def test_fetch_schema(adapter):
     schema = await adapter.fetch_schema("users")
     assert len(schema) == 3
     assert isinstance(schema[0], ColumnSchema)
-    assert schema[0].column == "id"
-    assert schema[0].type == "integer"
+    assert schema[0].name == "id"
+    assert schema[0].type == "int4"
+    assert schema[0].category == "number"
     assert schema[0].is_primary_key is True
     assert schema[1].nullable is True
+    assert schema[2].is_unique is True
+
+
+@pytest.mark.asyncio
+async def test_fetch_schema_foreign_key(adapter):
+    schema = await adapter.fetch_schema("orders")
+    user_id_col = next(c for c in schema if c.name == "user_id")
+    assert user_id_col.foreign_key == "users.id"
 
 
 @pytest.mark.asyncio
@@ -117,3 +126,14 @@ async def test_fetch_databases_empty():
     adapter = InMemoryAdapter()
     result = await adapter.fetch_databases()
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_add_table_auto_schema():
+    adapter = InMemoryAdapter()
+    adapter.add_table("items", [{"id": 1, "title": "Book"}])
+    schema = await adapter.fetch_schema("items")
+    assert len(schema) == 2
+    assert schema[0].name == "id"
+    assert schema[0].category == "text"  # auto-generated defaults to text
+    assert schema[0].foreign_key is None

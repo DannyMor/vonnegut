@@ -25,12 +25,12 @@ async def client(app):
 
 async def _create_connections(client):
     src = await client.post("/api/v1/connections", json={
-        "name": "Source", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "Source",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     tgt = await client.post("/api/v1/connections", json={
-        "name": "Target", "type": "postgres_direct",
-        "config": {"host": "h2", "port": 5432, "database": "d2", "user": "u", "password": "p"},
+        "name": "Target",
+        "config": {"type": "postgres_direct", "host": "h2", "port": 5432, "database": "d2", "user": "u", "password": "p"},
     })
     return src.json()["id"], tgt.json()["id"]
 

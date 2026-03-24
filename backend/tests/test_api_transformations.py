@@ -25,12 +25,12 @@ async def client(app):
 
 async def _create_migration(client):
     src = await client.post("/api/v1/connections", json={
-        "name": "Src", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "Src",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     tgt = await client.post("/api/v1/connections", json={
-        "name": "Tgt", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "Tgt",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     mig = await client.post("/api/v1/migrations", json={
         "name": "Mig", "source_connection_id": src.json()["id"],

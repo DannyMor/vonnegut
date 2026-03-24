@@ -27,8 +27,7 @@ async def client(app):
 async def test_create_connection(client):
     resp = await client.post("/api/v1/connections", json={
         "name": "Test DB",
-        "type": "postgres_direct",
-        "config": {"host": "localhost", "port": 5432, "database": "db", "user": "u", "password": "p"},
+        "config": {"type": "postgres_direct", "host": "localhost", "port": 5432, "database": "db", "user": "u", "password": "p"},
     })
     assert resp.status_code == 201
     data = resp.json()
@@ -39,8 +38,8 @@ async def test_create_connection(client):
 @pytest.mark.asyncio
 async def test_list_connections(client):
     await client.post("/api/v1/connections", json={
-        "name": "DB1", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "DB1",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     resp = await client.get("/api/v1/connections")
     assert resp.status_code == 200
@@ -50,8 +49,8 @@ async def test_list_connections(client):
 @pytest.mark.asyncio
 async def test_get_connection(client):
     create_resp = await client.post("/api/v1/connections", json={
-        "name": "Fetch Me", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "Fetch Me",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     conn_id = create_resp.json()["id"]
     resp = await client.get(f"/api/v1/connections/{conn_id}")
@@ -69,8 +68,8 @@ async def test_get_nonexistent_connection(client):
 @pytest.mark.asyncio
 async def test_update_connection(client):
     create_resp = await client.post("/api/v1/connections", json={
-        "name": "Old Name", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "Old Name",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     conn_id = create_resp.json()["id"]
     resp = await client.put(f"/api/v1/connections/{conn_id}", json={"name": "New Name"})
@@ -81,8 +80,8 @@ async def test_update_connection(client):
 @pytest.mark.asyncio
 async def test_delete_connection(client):
     create_resp = await client.post("/api/v1/connections", json={
-        "name": "Delete Me", "type": "postgres_direct",
-        "config": {"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
+        "name": "Delete Me",
+        "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
     conn_id = create_resp.json()["id"]
     resp = await client.delete(f"/api/v1/connections/{conn_id}")

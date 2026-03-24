@@ -1,6 +1,9 @@
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from vonnegut.database import Database
 from vonnegut.models.connection import encrypt_config, decrypt_config
@@ -11,16 +14,17 @@ class ConnectionManager:
         self._db = db
         self._key = encryption_key
 
-    async def create(self, name: str, type: str, config: dict) -> dict:
+    async def create(self, name: str, config: dict) -> dict:
         conn_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         encrypted = encrypt_config(config, self._key)
         await self._db.execute(
-            """INSERT INTO connections (id, name, type, config, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (conn_id, name, type, json.dumps(encrypted), now, now),
+            """INSERT INTO connections (id, name, config, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (conn_id, name, json.dumps(encrypted), now, now),
         )
-        return {"id": conn_id, "name": name, "type": type, "config": config, "created_at": now, "updated_at": now}
+        logger.info("Created connection '%s' (id=%s, type=%s)", name, conn_id, config.get("type"))
+        return {"id": conn_id, "name": name, "config": config, "created_at": now, "updated_at": now}
 
     async def list_all(self) -> list[dict]:
         rows = await self._db.fetch_all("SELECT * FROM connections ORDER BY created_at DESC")
@@ -40,6 +44,9 @@ class ConnectionManager:
             return None
         new_name = name if name is not None else existing["name"]
         new_config = config if config is not None else existing["config"]
+        # Preserve existing password if the update sends an empty one
+        if config is not None and "password" in new_config and not new_config["password"] and "password" in existing["config"]:
+            new_config = {**new_config, "password": existing["config"]["password"]}
         now = datetime.now(timezone.utc).isoformat()
         encrypted = encrypt_config(new_config, self._key)
         await self._db.execute(

@@ -1,7 +1,6 @@
-from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Discriminator, Tag, field_validator, model_validator
 
 from vonnegut.encryption import encrypt, decrypt
 
@@ -25,6 +24,7 @@ def decrypt_config(config: dict, key: str) -> dict:
 
 
 class PostgresDirectConfig(BaseModel):
+    type: Literal["postgres_direct"]
     host: str
     port: int = 5432
     database: str
@@ -33,53 +33,46 @@ class PostgresDirectConfig(BaseModel):
 
 
 class PostgresPodConfig(BaseModel):
+    type: Literal["postgres_pod"]
     namespace: str
     pod_selector: str
     pick_strategy: Literal["first_ready", "name_contains"] = "first_ready"
     pick_filter: str | None = None
     container: str | None = None
+    host: str
     port: int = 5432
     database: str = ""
     user: str
     password: str
-    local_port: int | None = None
+
+
+ConnectionConfig = Annotated[
+    Union[
+        Annotated[PostgresDirectConfig, Tag("postgres_direct")],
+        Annotated[PostgresPodConfig, Tag("postgres_pod")],
+    ],
+    Discriminator("type"),
+]
 
 
 class ConnectionCreate(BaseModel):
     name: str
-    type: Literal["postgres_direct", "postgres_pod"]
-    config: dict
+    config: ConnectionConfig
 
-    @property
-    def parsed_config(self) -> PostgresDirectConfig | PostgresPodConfig:
-        if self.type == "postgres_direct":
-            return PostgresDirectConfig(**self.config)
-        return PostgresPodConfig(**self.config)
-
-    @model_validator(mode="after")
-    def validate_config(self):
-        self.parsed_config
-        return self
+    @field_validator("name", mode="before")
+    @classmethod
+    def trim_name(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
 
 
 class ConnectionUpdate(BaseModel):
     name: str | None = None
-    config: dict | None = None
-
-
-class Connection(BaseModel):
-    id: str
-    name: str
-    type: Literal["postgres_direct", "postgres_pod"]
-    config: dict
-    created_at: str
-    updated_at: str
+    config: ConnectionConfig | None = None
 
 
 class ConnectionResponse(BaseModel):
     id: str
     name: str
-    type: Literal["postgres_direct", "postgres_pod"]
     config: dict
     created_at: str
     updated_at: str

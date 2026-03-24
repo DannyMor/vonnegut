@@ -19,8 +19,9 @@ def get_or_create_key(
         return key_path.read_text().strip()
 
     key = Fernet.generate_key().decode()
-    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     key_path.write_text(key)
+    key_path.chmod(0o600)
     return key
 
 
