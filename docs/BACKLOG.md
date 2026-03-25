@@ -54,9 +54,12 @@ Updated as work progresses.
 - [x] Shared `sql_utils` module — parse_sql, is_select_star, is_safe_to_merge, resolve_prev_reference, build_cte_chain
 - [x] All SQL analysis uses sqlglot AST instead of regex
 - [x] Merge safety guards — skip aggregation, window functions, DISTINCT, subqueries, non-deterministic functions
+- [x] Three-tier safety classification (SAFE/PARTIAL/UNSAFE) for optimizer rules
+- [x] Column lineage tracking — get_produced_columns, get_consumed_columns
+- [x] Schema-aware optimization — validated schemas flow from TestResult → PipelineManager → OptimizationContext → rules
 
 ### Test Suite
-- [x] 301 tests, all green
+- [x] 348 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
 - [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
@@ -90,8 +93,8 @@ Updated as work progresses.
 
 - [x] **MergeSqlNodesRule** — merge consecutive SQL nodes into a single CTE chain. Done in PR #17.
 - [x] **NoOpRemovalRule** — remove `SELECT * FROM {prev}` passthrough nodes. Done in PR #17.
-- [ ] **PredicatePushdownRule** — push SQL filters closer to source (requires schema info during optimization)
-- [ ] **ColumnPruningRule** — remove unused columns early (requires downstream column usage analysis)
+- [x] **PredicatePushdownRule** — push SQL filters closer to source using schema info for column validation. Done in PR #20.
+- [x] **ColumnPruningRule** — remove unused columns early using downstream column usage analysis and validated schemas. Done in PR #19.
 
 ### P3 — Frontend Improvements
 
