@@ -13,6 +13,7 @@ from psycopg import sql as psql
 from vonnegut.models.migration import MigrationCreate, MigrationResponse, MigrationUpdate
 from vonnegut.models.pipeline import PipelineStepResponse
 from vonnegut.models.transformation import TransformationResponse
+from vonnegut.pipeline.pipeline_runner import PipelineRunner
 from vonnegut.services.transformation_engine import TransformationEngine
 from vonnegut.services.migration_runner import MigrationRunner
 
@@ -179,10 +180,9 @@ async def test_migration(mig_id: str, request: Request):
             await target_adapter.disconnect()
 
     try:
-        from vonnegut.services.pipeline_engine import PipelineEngine
-        engine = PipelineEngine()
+        runner = PipelineRunner()
         source_query = row["source_query"] or psql.SQL("SELECT * FROM {}").format(psql.Identifier(row["source_table"])).as_string(None)
-        result = await engine.run_test(
+        result = await runner.run_test(
             source_adapter=source_adapter,
             source_query=source_query,
             steps=steps,
@@ -251,10 +251,9 @@ async def test_migration_stream(mig_id: str, request: Request):
                         finally:
                             await target_adapter.disconnect()
 
-                from vonnegut.services.pipeline_engine import PipelineEngine
-                engine = PipelineEngine()
+                runner = PipelineRunner()
                 source_query = row["source_query"] or psql.SQL("SELECT * FROM {}").format(psql.Identifier(row["source_table"])).as_string(None)
-                result = await engine.run_test(
+                result = await runner.run_test(
                     source_adapter=source_adapter,
                     source_query=source_query,
                     steps=steps,
@@ -366,10 +365,9 @@ async def run_migration_stream(mig_id: str, request: Request):
                         pass
 
                 # Run pipeline (no row limit for actual run)
-                from vonnegut.services.pipeline_engine import PipelineEngine
-                engine = PipelineEngine()
+                runner = PipelineRunner()
                 source_query = row["source_query"] or psql.SQL("SELECT * FROM {}").format(psql.Identifier(row["source_table"])).as_string(None)
-                result = await engine.run_test(
+                result = await runner.run_test(
                     source_adapter=source_adapter,
                     source_query=source_query,
                     steps=steps,
