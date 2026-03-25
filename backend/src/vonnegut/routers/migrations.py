@@ -165,6 +165,8 @@ async def test_migration(mig_id: str, request: Request):
             steps=steps,
             limit=10,
             target_schema=target_schema,
+            metadata_repo=request.app.state.pipeline_metadata_repo,
+            migration_id=mig_id,
         )
         return result
     finally:
@@ -228,6 +230,8 @@ async def test_migration_stream(mig_id: str, request: Request):
                     limit=10,
                     target_schema=target_schema,
                     on_progress=on_progress,
+                    metadata_repo=request.app.state.pipeline_metadata_repo,
+                    migration_id=mig_id,
                 )
                 await queue.put({"type": "result", "data": result,
                                  "timestamp": datetime.now(timezone.utc).isoformat()})
@@ -332,6 +336,8 @@ async def run_migration_stream(mig_id: str, request: Request):
                     limit=settings.migration_row_limit,
                     target_schema=target_schema,
                     on_progress=on_progress,
+                    metadata_repo=request.app.state.pipeline_metadata_repo,
+                    migration_id=mig_id,
                 )
 
                 # Check if pipeline had errors
@@ -491,3 +497,21 @@ async def get_migration_status(mig_id: str, request: Request):
     if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
     return dict(row)
+
+
+@router.get("/migrations/{mig_id}/validation")
+async def get_validation_status(mig_id: str, request: Request):
+    """Return pipeline validation metadata (status, hash, inferred schemas)."""
+    mig_repo, _, _ = _get_repos(request)
+    mig = await mig_repo.get(mig_id)
+    if mig is None:
+        raise HTTPException(status_code=404, detail="Migration not found")
+    metadata_repo = request.app.state.pipeline_metadata_repo
+    row = await metadata_repo.get_or_create(mig_id)
+    return {
+        "migration_id": row["migration_id"],
+        "validation_status": row["validation_status"],
+        "validated_hash": row["validated_hash"],
+        "last_validated_at": row["last_validated_at"],
+        "node_schemas": json.loads(row["node_schemas"]),
+    }

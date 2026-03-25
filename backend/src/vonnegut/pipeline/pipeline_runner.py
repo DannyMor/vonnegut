@@ -20,6 +20,7 @@ from vonnegut.pipeline.engine.executor.source_executor import SourceExecutor
 from vonnegut.pipeline.engine.executor.sql_executor import SqlExecutor
 from vonnegut.pipeline.engine.executor.target_executor import TargetExecutor
 from vonnegut.pipeline.engine.executor.base import NodeExecutor
+from vonnegut.pipeline.control_plane.hashing import compute_pipeline_hash
 from vonnegut.pipeline.graph_builder import build_graph_from_migration
 
 ProgressCallback = Callable[[dict], Awaitable[None]] | None
@@ -73,8 +74,14 @@ class PipelineRunner:
         limit: int = 10,
         target_schema: list[ColumnSchema] | None = None,
         on_progress: ProgressCallback = None,
+        metadata_repo=None,
+        migration_id: str | None = None,
     ) -> dict:
-        """Run pipeline test, returning PipelineTestResult-shaped dict."""
+        """Run pipeline test, returning PipelineTestResult-shaped dict.
+
+        If metadata_repo and migration_id are provided, persists validation
+        state (schemas, hash, status) after the test completes.
+        """
         mig = self._build_migration_dict(source_query, steps)
         graph = build_graph_from_migration(mig, steps)
         node_names = _build_node_names(graph, steps)
@@ -187,6 +194,26 @@ class PipelineRunner:
 
                 pipeline_failed = True
                 break
+
+        # Persist validation metadata if repo is available
+        if metadata_repo is not None and migration_id is not None:
+            node_schemas = {}
+            for step in results:
+                if step["status"] == "ok" and step.get("schema"):
+                    node_schemas[step["node_id"]] = step["schema"]
+
+            if pipeline_failed:
+                await metadata_repo.update_validation(
+                    migration_id, "INVALID", validated_hash=None, node_schemas=node_schemas,
+                )
+            else:
+                pipeline_hash = compute_pipeline_hash(
+                    {nid: graph.nodes[nid] for nid in graph.nodes},
+                    graph.edges,
+                )
+                await metadata_repo.update_validation(
+                    migration_id, "VALID", validated_hash=pipeline_hash, node_schemas=node_schemas,
+                )
 
         return {"steps": results}
 
