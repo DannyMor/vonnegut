@@ -146,3 +146,79 @@ class PostgresSchemaAdapter:
                 nullable=col.get("nullable", True),
             ))
         return Schema(columns=columns)
+
+
+# DuckDB type string mappings
+_DUCKDB_TYPE_TO_CANONICAL: dict[str, DataType] = {
+    "tinyint": DataType.INT8,
+    "int1": DataType.INT8,
+    "smallint": DataType.INT16,
+    "int2": DataType.INT16,
+    "short": DataType.INT16,
+    "integer": DataType.INT32,
+    "int": DataType.INT32,
+    "int4": DataType.INT32,
+    "signed": DataType.INT32,
+    "bigint": DataType.INT64,
+    "int8": DataType.INT64,
+    "long": DataType.INT64,
+    "hugeint": DataType.INT64,
+    "utinyint": DataType.INT32,
+    "usmallint": DataType.INT32,
+    "uinteger": DataType.UINT32,
+    "ubigint": DataType.UINT64,
+    "uhugeint": DataType.UINT64,
+    "float": DataType.FLOAT32,
+    "float4": DataType.FLOAT32,
+    "real": DataType.FLOAT32,
+    "double": DataType.FLOAT64,
+    "float8": DataType.FLOAT64,
+    "numeric": DataType.FLOAT64,
+    "decimal": DataType.FLOAT64,
+    "varchar": DataType.UTF8,
+    "text": DataType.UTF8,
+    "string": DataType.UTF8,
+    "char": DataType.UTF8,
+    "bpchar": DataType.UTF8,
+    "boolean": DataType.BOOLEAN,
+    "bool": DataType.BOOLEAN,
+    "logical": DataType.BOOLEAN,
+    "timestamp": DataType.TIMESTAMP,
+    "datetime": DataType.TIMESTAMP,
+    "timestamp with time zone": DataType.TIMESTAMP,
+    "timestamptz": DataType.TIMESTAMP,
+    "date": DataType.DATE,
+    "time": DataType.TIME,
+    "blob": DataType.BINARY,
+    "bytea": DataType.BINARY,
+    "varbinary": DataType.BINARY,
+    "uuid": DataType.UTF8,
+    "json": DataType.UTF8,
+}
+
+
+class DuckDBSchemaAdapter:
+    @staticmethod
+    def from_description(description: list[tuple]) -> Schema:
+        """Build Schema from a DuckDB cursor description.
+
+        Each tuple is (name, type_code, display_size, internal_size,
+        precision, scale, null_ok).
+        """
+        columns = []
+        for desc in description:
+            name = desc[0]
+            type_str = desc[1].lower().strip() if isinstance(desc[1], str) else str(desc[1]).lower()
+            nullable = desc[6] if len(desc) > 6 and desc[6] is not None else True
+            dtype = _DUCKDB_TYPE_TO_CANONICAL.get(type_str, DataType.UTF8)
+            columns.append(Column(name=name, dtype=dtype, nullable=nullable))
+        return Schema(columns=columns)
+
+    @staticmethod
+    def from_column_types(column_types: dict[str, str]) -> Schema:
+        """Build Schema from a dict of column_name → DuckDB type string."""
+        columns = []
+        for name, type_str in column_types.items():
+            dtype = _DUCKDB_TYPE_TO_CANONICAL.get(type_str.lower().strip(), DataType.UTF8)
+            columns.append(Column(name=name, dtype=dtype, nullable=True))
+        return Schema(columns=columns)
