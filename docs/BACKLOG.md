@@ -80,22 +80,22 @@ Updated as work progresses.
 - [ ] **PredicatePushdownRule** — push SQL filters closer to source
 - [ ] **ColumnPruningRule** — remove unused columns early
 
-### P3 — Storage & Multi-DB
-
-- [ ] **PostgresDatabase implementation** — implement AppDatabase protocol for Postgres, enabling Postgres as the metadata store
-- [ ] **DuckDBSchemaAdapter** — schema adapter for DuckDB column types
-
-### P4 — Frontend Improvements
+### P3 — Frontend Improvements
 
 - [ ] **Richer validation display** — show structured validation results (per-rule pass/fail) in the pipeline builder UI
 - [ ] **Better error messages** — surface validation rule details (not just generic error strings)
 - [ ] **Pipeline status indicators** — show DRAFT/VALID/INVALID status in the UI
 
-### P5 — Cleanup & Quality
+### P4 — Cleanup & Quality
 
 - [ ] **Remove TransformationEngine + MigrationRunner** — these are legacy (pre-pipeline framework). The old `/run` endpoint still uses them. Once run-stream fully replaces run, they can go.
 - [ ] **Code execution safety** — restricted builtins, timeout protection, no network access in CodeExecutor sandbox
 - [ ] **LogReporter** — writes pipeline events to Python logger (useful for debugging)
+
+### P5 — Storage & Multi-DB
+
+- [ ] **PostgresDatabase implementation** — implement AppDatabase protocol for Postgres, enabling Postgres as the metadata store
+- [ ] **DuckDBSchemaAdapter** — schema adapter for DuckDB column types
 
 ---
 
