@@ -2,7 +2,7 @@ import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
 
-from vonnegut.database import Database
+from vonnegut.database import SqliteDatabase
 
 
 @pytest.fixture
@@ -12,7 +12,7 @@ def encryption_key():
 
 @pytest_asyncio.fixture
 async def db(tmp_path):
-    database = Database(f"sqlite+aiosqlite:///{tmp_path}/test.db")
+    database = SqliteDatabase(f"sqlite+aiosqlite:///{tmp_path}/test.db")
     await database.initialize()
     yield database
     await database.close()

@@ -5,9 +5,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from vonnegut.config import Settings
-from vonnegut.database import Database
+from vonnegut.database import AppDatabase, SqliteDatabase
 from vonnegut.encryption import get_or_create_key
 from vonnegut.adapters.factory import DefaultAdapterFactory
+from vonnegut.repositories import (
+    ConnectionRepository,
+    MigrationRepository,
+    PipelineStepRepository,
+    TransformationRepository,
+)
 from vonnegut.routers.ai import router as ai_router
 from vonnegut.routers.connections import router as connections_router
 from vonnegut.routers.explorer import router as explorer_router
@@ -17,8 +23,20 @@ from vonnegut.routers.transformations import router as transformations_router
 from vonnegut.services.connection_manager import ConnectionManager
 
 
+def _init_repositories(app: FastAPI, db: AppDatabase, encryption_key: str) -> None:
+    """Initialize all repositories and services on app.state."""
+    app.state.db = db
+    conn_repo = ConnectionRepository(db)
+    app.state.migration_repo = MigrationRepository(db)
+    app.state.pipeline_step_repo = PipelineStepRepository(db)
+    app.state.transformation_repo = TransformationRepository(db)
+    app.state.connection_manager = ConnectionManager(
+        repo=conn_repo, encryption_key=encryption_key,
+    )
+
+
 def create_app(
-    db: Database | None = None,
+    db: AppDatabase | None = None,
     encryption_key: str | None = None,
     settings: Settings | None = None,
     adapter_factory=None,
@@ -27,16 +45,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Startup: initialize DB if not injected (i.e. production mode)
         if app.state.db is None:
-            db_instance = Database(settings.database_url)
+            db_instance = SqliteDatabase(settings.database_url)
             await db_instance.initialize()
-            app.state.db = db_instance
-            app.state.connection_manager = ConnectionManager(
-                db=db_instance, encryption_key=app.state.encryption_key,
-            )
+            _init_repositories(app, db_instance, app.state.encryption_key)
         yield
-        # Shutdown: close DB
         if app.state.db is not None:
             await app.state.db.close()
 
@@ -50,13 +63,18 @@ def create_app(
         allow_headers=["*"],
     )
 
-    app.state.db = db
+    app.state.db = None
     app.state.encryption_key = encryption_key or get_or_create_key()
     app.state.settings = settings
     app.state.adapter_factory = adapter_factory or DefaultAdapterFactory()
-    app.state.connection_manager = ConnectionManager(
-        db=app.state.db, encryption_key=app.state.encryption_key,
-    )
+    app.state.migration_repo = None
+    app.state.pipeline_step_repo = None
+    app.state.transformation_repo = None
+    app.state.connection_manager = None
+
+    # Pre-initialize if db was injected (e.g. tests)
+    if db is not None:
+        _init_repositories(app, db, app.state.encryption_key)
 
     @app.get("/api/health")
     def health():
