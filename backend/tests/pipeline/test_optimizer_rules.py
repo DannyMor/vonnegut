@@ -4,6 +4,7 @@ from vonnegut.pipeline.dag.plan import LogicalPlan, PlanNode, PlanEdge
 from vonnegut.pipeline.engine.optimizer.rules.base import OptimizationContext
 from vonnegut.pipeline.engine.optimizer.rules.noop_removal import NoOpRemovalRule
 from vonnegut.pipeline.engine.optimizer.rules.merge_sql import MergeSqlNodesRule
+from vonnegut.pipeline.engine.optimizer.rules.column_pruning import ColumnPruningRule
 
 
 def _src_node(nid="src"):
@@ -278,3 +279,158 @@ class TestMergeSqlNodesRule:
         # The original {prev} in sql2 should NOT remain
         # The merged SQL should reference _step_0 instead of {prev} for the second step
         assert "FROM _step_0 WHERE" in expr
+
+
+class TestColumnPruningRule:
+    def test_prunes_unused_columns(self):
+        """Prune columns from sql1 that sql2 doesn't need."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name, age FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id FROM {prev} WHERE name IS NOT NULL"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = ColumnPruningRule().apply(plan, _CTX)
+        pruned = result.nodes["sql1"]
+        assert isinstance(pruned.config, SqlNodeConfig)
+        assert "age" not in pruned.config.expression
+        assert "id" in pruned.config.expression
+        assert "name" in pruned.config.expression
+
+    def test_no_prune_when_all_columns_needed(self):
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id, name FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = ColumnPruningRule().apply(plan, _CTX)
+        assert result is plan  # No changes
+
+    def test_no_prune_select_star(self):
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT * FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = ColumnPruningRule().apply(plan, _CTX)
+        assert result is plan  # Can't prune SELECT *
+
+    def test_no_prune_unsafe_node(self):
+        """Nodes with aggregation/window/DISTINCT should not be pruned."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT name, COUNT(*) AS cnt FROM {prev} GROUP BY name"),
+                "sql2": _sql_node("sql2", "SELECT name FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = ColumnPruningRule().apply(plan, _CTX)
+        assert result is plan  # UNSAFE tier, no pruning
+
+    def test_no_prune_when_downstream_is_code(self):
+        from vonnegut.pipeline.dag.node import CodeNodeConfig
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name, age FROM {prev}"),
+                "code": PlanNode(id="code", type=NodeType.CODE, config=CodeNodeConfig(function_code="def transform(df): return df")),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="code"),
+                PlanEdge(from_node_id="code", to_node_id="tgt"),
+            ],
+        )
+        result = ColumnPruningRule().apply(plan, _CTX)
+        assert result is plan  # Code node downstream, can't determine usage
+
+    def test_prune_with_schema_context(self):
+        """When schemas are provided in context, use them for precise pruning."""
+        from vonnegut.pipeline.schema.types import Schema, Column, DataType
+        ctx = OptimizationContext(
+            node_schemas={
+                "sql1": Schema(columns=[
+                    Column(name="id", dtype=DataType.INT64),
+                    Column(name="name", dtype=DataType.UTF8),
+                    Column(name="age", dtype=DataType.INT64),
+                ]),
+            }
+        )
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name, age FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = ColumnPruningRule().apply(plan, ctx)
+        pruned = result.nodes["sql1"]
+        assert isinstance(pruned.config, SqlNodeConfig)
+        assert "age" not in pruned.config.expression
+        assert "name" not in pruned.config.expression
+        assert "id" in pruned.config.expression
+
+    def test_prune_with_target_schema_context(self):
+        """When target has schema in context, use it to determine needed columns."""
+        from vonnegut.pipeline.schema.types import Schema, Column, DataType
+        ctx = OptimizationContext(
+            node_schemas={
+                "tgt": Schema(columns=[
+                    Column(name="id", dtype=DataType.INT64),
+                    Column(name="name", dtype=DataType.UTF8),
+                ]),
+            }
+        )
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name, age FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="tgt"),
+            ],
+        )
+        result = ColumnPruningRule().apply(plan, ctx)
+        pruned = result.nodes["sql1"]
+        assert isinstance(pruned.config, SqlNodeConfig)
+        assert "age" not in pruned.config.expression
+        assert "id" in pruned.config.expression
+        assert "name" in pruned.config.expression

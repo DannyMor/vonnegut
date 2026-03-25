@@ -41,7 +41,7 @@ def _make_plan() -> LogicalPlan:
 class TestOptimizer:
     def test_pass_through_preserves_all_nodes(self):
         optimizer = Optimizer(rules=[])
-        ctx = OptimizationContext(schemas={})
+        ctx = OptimizationContext()
         exec_plan = optimizer.optimize(_make_plan(), ctx)
         assert isinstance(exec_plan, ExecutionPlan)
         assert len(exec_plan.contexts) == 3
@@ -51,6 +51,6 @@ class TestOptimizer:
 
     def test_edges_preserved(self):
         optimizer = Optimizer(rules=[])
-        ctx = OptimizationContext(schemas={})
+        ctx = OptimizationContext()
         exec_plan = optimizer.optimize(_make_plan(), ctx)
         assert len(exec_plan.edges) == 2

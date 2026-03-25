@@ -8,7 +8,12 @@ from vonnegut.pipeline.schema.types import Schema
 
 @dataclass
 class OptimizationContext:
-    schemas: dict[str, dict[str, Schema]] = field(default_factory=dict)
+    """Context available to optimizer rules.
+
+    node_schemas: maps node_id → validated output Schema (from test run).
+    statistics: reserved for future cost-based optimization.
+    """
+    node_schemas: dict[str, Schema] = field(default_factory=dict)
     statistics: dict | None = None
 
 

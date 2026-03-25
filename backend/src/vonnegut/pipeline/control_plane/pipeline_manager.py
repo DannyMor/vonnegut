@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from vonnegut.pipeline.control_plane.hashing import compute_pipeline_hash
 from vonnegut.pipeline.control_plane.pipeline_state import (
+    NodeMetadata,
     PipelineMetadata,
     ValidationStatus,
 )
@@ -51,6 +52,10 @@ class PipelineManager:
         if result.success:
             metadata.validation_status = ValidationStatus.VALID
             metadata.validated_hash = compute_pipeline_hash(graph.nodes, graph.edges)
+            for nid, schema in result.node_schemas.items():
+                if nid not in metadata.node_metadata:
+                    metadata.node_metadata[nid] = NodeMetadata(node_id=nid)
+                metadata.node_metadata[nid].output_schema = schema
         else:
             metadata.validation_status = ValidationStatus.INVALID
             metadata.validated_hash = None
@@ -80,7 +85,12 @@ class PipelineManager:
         await self.ensure_valid(graph, metadata, reporter)
 
         plan = self._build_logical_plan(graph)
-        ctx = OptimizationContext(schemas={})
+        node_schemas = {
+            nid: nm.output_schema
+            for nid, nm in metadata.node_metadata.items()
+            if nm.output_schema is not None
+        }
+        ctx = OptimizationContext(node_schemas=node_schemas)
         exec_plan = self._optimizer.optimize(plan, ctx)
 
         return await self._orchestrator.run_execute(

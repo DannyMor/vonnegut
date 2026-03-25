@@ -43,12 +43,20 @@ class Optimizer:
         contexts = []
         for node_id in order:
             pn = current.nodes[node_id]
+            # Build input_schemas from upstream node schemas
+            input_schemas = {}
+            for edge in current.edges:
+                if edge.to_node_id == node_id:
+                    schema = context.node_schemas.get(edge.from_node_id)
+                    if schema is not None:
+                        key = edge.input_name or "default"
+                        input_schemas[key] = schema
             contexts.append(
                 ExecutionContext(
                     node_id=node_id,
                     node_type=pn.type,
                     config=pn.config,
-                    input_schemas=context.schemas.get(node_id, {}),
+                    input_schemas=input_schemas,
                 ),
             )
 
