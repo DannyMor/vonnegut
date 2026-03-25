@@ -268,6 +268,14 @@ async def run_migration_stream(mig_id: str, request: Request):
     if row["status"] == "running":
         raise HTTPException(status_code=409, detail="Migration is already running")
 
+    metadata_repo = request.app.state.pipeline_metadata_repo
+    metadata = await metadata_repo.get_or_create(mig_id)
+    if metadata["validation_status"] != "VALID":
+        raise HTTPException(
+            status_code=409,
+            detail="Pipeline must be validated before running. Run a test first.",
+        )
+
     step_rows = await step_repo.list_by_migration(mig_id)
     steps = _load_steps_for_pipeline(step_rows)
 
@@ -430,6 +438,14 @@ async def run_migration(mig_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Migration not found")
     if row["status"] == "running":
         raise HTTPException(status_code=409, detail="Migration is already running")
+
+    metadata_repo = request.app.state.pipeline_metadata_repo
+    metadata = await metadata_repo.get_or_create(mig_id)
+    if metadata["validation_status"] != "VALID":
+        raise HTTPException(
+            status_code=409,
+            detail="Pipeline must be validated before running. Run a test first.",
+        )
 
     settings = request.app.state.settings
     await mig_repo.update_status(mig_id, "running", rows_processed=0)
