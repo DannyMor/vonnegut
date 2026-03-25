@@ -57,10 +57,16 @@ function buildNodeData(migration: Migration, testResults: StepResult[] | null, s
         stepType: step.step_type,
         description: step.description,
         schemaCount: stepResult?.schema?.length ?? null,
+        validationStatus: stepResult?.status ?? null,
         onDelete: onDeleteStep,
       },
     });
   });
+
+  const targetResult = testResults?.find((r) => r.node_id === "target");
+  const targetValidation: "valid" | "invalid" | "unknown" = targetResult
+    ? (targetResult.status === "ok" && targetResult.validation.valid ? "valid" : "invalid")
+    : "unknown";
 
   result.push({
     id: "target",
@@ -71,7 +77,7 @@ function buildNodeData(migration: Migration, testResults: StepResult[] | null, s
       connectionName: "",
       table: migration.target_table || "Not configured",
       schemaCount: null,
-      validationStatus: "unknown",
+      validationStatus: targetValidation,
       label: migration.target_label,
     },
   });

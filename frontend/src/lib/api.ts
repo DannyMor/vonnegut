@@ -147,6 +147,10 @@ export const api = {
       request<{ status: string; rows_processed: number | null; total_rows: number | null; error_message: string | null }>(
         `/migrations/${id}/status`
       ),
+    validation: (id: string) =>
+      request<{ migration_id: string; validation_status: string; validated_hash: string | null; last_validated_at: string | null }>(
+        `/migrations/${id}/validation`
+      ),
   },
 
   transformations: {

@@ -14,6 +14,7 @@ export interface LogEntry {
   error?: string;
   timestamp?: string;
   message?: string;
+  validation_errors?: Array<{ type: string; column?: string; message: string }>;
 }
 
 interface Props {
@@ -121,7 +122,21 @@ function EntryLine({ entry }: { entry: LogEntry }) {
             </span>
           )}
         </div>
-        {entry.error && (
+        {entry.validation_errors && entry.validation_errors.length > 0 && (
+          <div className="ml-8 text-xs text-red-400/80 bg-red-500/10 rounded px-2 py-1.5 space-y-0.5 max-h-32 overflow-auto">
+            {entry.validation_errors.map((ve, i) => (
+              <div key={i} className="flex items-start gap-1.5">
+                <span className="text-red-500/60 shrink-0">•</span>
+                <span>
+                  {ve.column && <span className="font-mono text-red-300">{ve.column}</span>}
+                  {ve.column && " — "}
+                  {ve.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {entry.error && !entry.validation_errors?.length && (
           <div className="ml-8 text-xs text-red-400/80 font-mono bg-red-500/10 rounded px-2 py-1 max-h-20 overflow-auto">
             {entry.error}
           </div>

@@ -54,3 +54,5 @@ export interface StepResult {
 export interface PipelineTestResult {
   steps: StepResult[];
 }
+
+export type ValidationStatus = "DRAFT" | "VALIDATING" | "VALID" | "INVALID";
