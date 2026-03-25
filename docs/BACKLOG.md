@@ -51,7 +51,7 @@ Updated as work progresses.
 - [x] 5 metadata repository tests
 
 ### Test Suite
-- [x] 255 tests, all green
+- [x] 265 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
 - [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
@@ -83,10 +83,10 @@ Updated as work progresses.
 
 ### P2 — Optimizer
 
-- [ ] **MergeSqlNodesRule** — merge consecutive SQL nodes into a single CTE chain (uses sqlglot)
-- [ ] **NoOpRemovalRule** — remove `SELECT * FROM {prev}` passthrough nodes
-- [ ] **PredicatePushdownRule** — push SQL filters closer to source
-- [ ] **ColumnPruningRule** — remove unused columns early
+- [x] **MergeSqlNodesRule** — merge consecutive SQL nodes into a single CTE chain. Done in PR #17.
+- [x] **NoOpRemovalRule** — remove `SELECT * FROM {prev}` passthrough nodes. Done in PR #17.
+- [ ] **PredicatePushdownRule** — push SQL filters closer to source (requires schema info during optimization)
+- [ ] **ColumnPruningRule** — remove unused columns early (requires downstream column usage analysis)
 
 ### P3 — Frontend Improvements
 
