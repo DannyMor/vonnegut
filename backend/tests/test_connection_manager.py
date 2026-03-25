@@ -1,11 +1,13 @@
 import pytest
 
+from vonnegut.repositories.connection_repo import ConnectionRepository
 from vonnegut.services.connection_manager import ConnectionManager
 
 
 @pytest.fixture
 def manager(db, encryption_key):
-    return ConnectionManager(db, encryption_key=encryption_key)
+    repo = ConnectionRepository(db)
+    return ConnectionManager(repo=repo, encryption_key=encryption_key)
 
 
 @pytest.mark.asyncio

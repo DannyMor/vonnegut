@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from httpx import AsyncClient, ASGITransport
 
 from vonnegut.main import create_app
-from vonnegut.database import Database
+from vonnegut.database import SqliteDatabase as Database
 
 
 @pytest_asyncio.fixture

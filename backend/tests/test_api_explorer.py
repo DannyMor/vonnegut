@@ -4,7 +4,7 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from vonnegut.main import create_app
-from vonnegut.database import Database
+from vonnegut.database import SqliteDatabase as Database
 from vonnegut.adapters.base import ColumnSchema
 from vonnegut.adapters.memory import InMemoryAdapter
 from vonnegut.adapters.testing import TestAdapterFactory

@@ -1,4 +1,28 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+from typing import Protocol, runtime_checkable
+
 import aiosqlite
+
+
+@runtime_checkable
+class AppDatabase(Protocol):
+    """Abstract interface for the application metadata database.
+
+    Implementations handle connection lifecycle, query execution,
+    and transaction management. Repositories depend on this protocol,
+    never on a concrete database.
+    """
+
+    async def initialize(self) -> None: ...
+    async def close(self) -> None: ...
+    async def execute(self, query: str, params: Sequence = ()) -> None: ...
+    async def fetch_one(self, query: str, params: Sequence = ()) -> dict | None: ...
+    async def fetch_all(self, query: str, params: Sequence = ()) -> list[dict]: ...
+    def transaction(self) -> AsyncIterator[None]: ...
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS connections (
@@ -52,9 +76,10 @@ CREATE TABLE IF NOT EXISTS transformations (
 """
 
 
-class Database:
+class SqliteDatabase:
+    """SQLite implementation of AppDatabase."""
+
     def __init__(self, url: str):
-        # Extract file path from URL like "sqlite+aiosqlite:///path/to/db"
         self._path = url.split("///")[-1] if ":///" in url else url
         self._conn: aiosqlite.Connection | None = None
 
@@ -71,16 +96,26 @@ class Database:
             await self._conn.close()
             self._conn = None
 
-    async def execute(self, query: str, params: tuple = ()) -> None:
+    async def execute(self, query: str, params: Sequence = ()) -> None:
         await self._conn.execute(query, params)
         await self._conn.commit()
 
-    async def fetch_one(self, query: str, params: tuple = ()) -> dict | None:
+    async def fetch_one(self, query: str, params: Sequence = ()) -> dict | None:
         cursor = await self._conn.execute(query, params)
         row = await cursor.fetchone()
         return dict(row) if row else None
 
-    async def fetch_all(self, query: str, params: tuple = ()) -> list[dict]:
+    async def fetch_all(self, query: str, params: Sequence = ()) -> list[dict]:
         cursor = await self._conn.execute(query, params)
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    @asynccontextmanager
+    async def transaction(self):
+        await self._conn.execute("BEGIN")
+        try:
+            yield
+            await self._conn.commit()
+        except BaseException:
+            await self._conn.rollback()
+            raise

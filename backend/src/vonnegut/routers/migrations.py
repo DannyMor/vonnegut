@@ -24,44 +24,35 @@ router = APIRouter(tags=["migrations"])
 _running_migrations: dict[str, asyncio.Event] = {}
 
 
-def _get_db(request: Request):
-    return request.app.state.db
-
-
-async def _get_transformations(db, migration_id: str) -> list[TransformationResponse]:
-    rows = await db.fetch_all(
-        'SELECT * FROM transformations WHERE migration_id = ? ORDER BY "order"',
-        (migration_id,),
+def _get_repos(request: Request):
+    return (
+        request.app.state.migration_repo,
+        request.app.state.pipeline_step_repo,
+        request.app.state.transformation_repo,
     )
-    return [
-        TransformationResponse(
-            id=r["id"], migration_id=r["migration_id"], order=r["order"],
-            type=r["type"], config=json.loads(r["config"]),
-            created_at=r["created_at"], updated_at=r["updated_at"],
-        )
-        for r in rows
-    ]
 
 
-async def _get_pipeline_steps(db, migration_id: str) -> list[PipelineStepResponse]:
-    rows = await db.fetch_all(
-        "SELECT * FROM pipeline_steps WHERE migration_id = ? ORDER BY position",
-        (migration_id,),
+def _transform_row_to_response(row: dict) -> TransformationResponse:
+    return TransformationResponse(
+        id=row["id"], migration_id=row["migration_id"], order=row["order"],
+        type=row["type"], config=json.loads(row["config"]),
+        created_at=row["created_at"], updated_at=row["updated_at"],
     )
-    return [
-        PipelineStepResponse(
-            id=r["id"], migration_id=r["migration_id"], name=r["name"],
-            description=r["description"], position=r["position"],
-            step_type=r["step_type"], config=json.loads(r["config"]),
-            created_at=r["created_at"], updated_at=r["updated_at"],
-        )
-        for r in rows
-    ]
 
 
-async def _migration_response(db, row: dict) -> MigrationResponse:
-    transforms = await _get_transformations(db, row["id"])
-    pipeline_steps = await _get_pipeline_steps(db, row["id"])
+def _step_row_to_response(row: dict) -> PipelineStepResponse:
+    return PipelineStepResponse(
+        id=row["id"], migration_id=row["migration_id"], name=row["name"],
+        description=row["description"], position=row["position"],
+        step_type=row["step_type"], config=json.loads(row["config"]),
+        created_at=row["created_at"], updated_at=row["updated_at"],
+    )
+
+
+async def _migration_response(request: Request, row: dict) -> MigrationResponse:
+    _, step_repo, transform_repo = _get_repos(request)
+    transform_rows = await transform_repo.list_by_migration(row["id"])
+    step_rows = await step_repo.list_by_migration(row["id"])
     return MigrationResponse(
         id=row["id"], name=row["name"],
         source_connection_id=row["source_connection_id"],
@@ -73,73 +64,68 @@ async def _migration_response(db, row: dict) -> MigrationResponse:
         rows_processed=row["rows_processed"], total_rows=row["total_rows"],
         error_message=row["error_message"],
         created_at=row["created_at"], updated_at=row["updated_at"],
-        transformations=transforms,
-        pipeline_steps=pipeline_steps,
+        transformations=[_transform_row_to_response(r) for r in transform_rows],
+        pipeline_steps=[_step_row_to_response(r) for r in step_rows],
     )
+
+
+def _load_steps_for_pipeline(step_rows: list[dict]) -> list[dict]:
+    """Convert DB rows to the dict format expected by PipelineRunner."""
+    return [
+        {"id": s["id"], "name": s["name"], "position": s["position"],
+         "step_type": s["step_type"], "config": json.loads(s["config"])}
+        for s in step_rows
+    ]
 
 
 @router.post("/migrations", response_model=MigrationResponse, status_code=status.HTTP_201_CREATED)
 async def create_migration(body: MigrationCreate, request: Request):
-    db = _get_db(request)
-    mig_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    await db.execute(
-        """INSERT INTO migrations
-           (id, name, source_connection_id, target_connection_id, source_table, target_table,
-            source_query, source_schema, status, truncate_target, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)""",
-        (mig_id, body.name, body.source_connection_id, body.target_connection_id,
-         body.source_table, body.target_table, body.source_query,
-         json.dumps(body.source_schema), int(body.truncate_target), now, now),
+    mig_repo, _, _ = _get_repos(request)
+    row = await mig_repo.create(
+        name=body.name,
+        source_connection_id=body.source_connection_id,
+        target_connection_id=body.target_connection_id,
+        source_table=body.source_table,
+        target_table=body.target_table,
+        source_query=body.source_query,
+        source_schema=body.source_schema,
+        truncate_target=body.truncate_target,
     )
-    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
-    return await _migration_response(db, row)
+    return await _migration_response(request, row)
 
 
 @router.get("/migrations", response_model=list[MigrationResponse])
 async def list_migrations(request: Request):
-    db = _get_db(request)
-    rows = await db.fetch_all("SELECT * FROM migrations ORDER BY created_at DESC")
-    return [await _migration_response(db, r) for r in rows]
+    mig_repo, _, _ = _get_repos(request)
+    rows = await mig_repo.list_all()
+    return [await _migration_response(request, r) for r in rows]
 
 
 @router.get("/migrations/{mig_id}", response_model=MigrationResponse)
 async def get_migration(mig_id: str, request: Request):
-    db = _get_db(request)
-    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    mig_repo, _, _ = _get_repos(request)
+    row = await mig_repo.get(mig_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
-    return await _migration_response(db, row)
+    return await _migration_response(request, row)
 
 
 @router.put("/migrations/{mig_id}", response_model=MigrationResponse)
 async def update_migration(mig_id: str, body: MigrationUpdate, request: Request):
-    db = _get_db(request)
-    existing = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
-    if existing is None:
+    mig_repo, _, _ = _get_repos(request)
+    fields = body.model_dump(exclude_none=True)
+    row = await mig_repo.update(mig_id, **fields)
+    if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
-    now = datetime.now(timezone.utc).isoformat()
-    new_name = body.name if body.name is not None else existing["name"]
-    new_source = body.source_table if body.source_table is not None else existing["source_table"]
-    new_target = body.target_table if body.target_table is not None else existing["target_table"]
-    new_truncate = int(body.truncate_target) if body.truncate_target is not None else existing["truncate_target"]
-    new_query = body.source_query if body.source_query is not None else existing["source_query"]
-    new_schema = json.dumps(body.source_schema) if body.source_schema is not None else existing["source_schema"]
-    await db.execute(
-        "UPDATE migrations SET name=?, source_table=?, target_table=?, source_query=?, source_schema=?, truncate_target=?, updated_at=? WHERE id=?",
-        (new_name, new_source, new_target, new_query, new_schema, new_truncate, now, mig_id),
-    )
-    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
-    return await _migration_response(db, row)
+    return await _migration_response(request, row)
 
 
 @router.delete("/migrations/{mig_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_migration(mig_id: str, request: Request):
-    db = _get_db(request)
-    existing = await db.fetch_one("SELECT id FROM migrations WHERE id = ?", (mig_id,))
-    if existing is None:
+    mig_repo, _, _ = _get_repos(request)
+    deleted = await mig_repo.delete(mig_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Migration not found")
-    await db.execute("DELETE FROM migrations WHERE id = ?", (mig_id,))
 
 
 def _get_adapter_factory(request: Request):
@@ -148,28 +134,19 @@ def _get_adapter_factory(request: Request):
 
 @router.post("/migrations/{mig_id}/test")
 async def test_migration(mig_id: str, request: Request):
-    db = _get_db(request)
-    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    mig_repo, step_repo, _ = _get_repos(request)
+    row = await mig_repo.get(mig_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
 
-    # Load pipeline steps
-    step_rows = await db.fetch_all(
-        "SELECT * FROM pipeline_steps WHERE migration_id = ? ORDER BY position",
-        (mig_id,),
-    )
-    steps = [
-        {"id": s["id"], "name": s["name"], "position": s["position"],
-         "step_type": s["step_type"], "config": json.loads(s["config"])}
-        for s in step_rows
-    ]
+    step_rows = await step_repo.list_by_migration(mig_id)
+    steps = _load_steps_for_pipeline(step_rows)
 
     manager = request.app.state.connection_manager
     adapter_factory = _get_adapter_factory(request)
     source_conn = await manager.get(row["source_connection_id"])
     source_adapter = await adapter_factory.create(source_conn)
 
-    # Get target schema if configured
     target_schema = None
     if row["target_connection_id"] and row["target_table"]:
         target_conn = await manager.get(row["target_connection_id"])
@@ -197,20 +174,13 @@ async def test_migration(mig_id: str, request: Request):
 @router.post("/migrations/{mig_id}/test-stream")
 async def test_migration_stream(mig_id: str, request: Request):
     """SSE endpoint that streams step-by-step test progress."""
-    db = _get_db(request)
-    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    mig_repo, step_repo, _ = _get_repos(request)
+    row = await mig_repo.get(mig_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
 
-    step_rows = await db.fetch_all(
-        "SELECT * FROM pipeline_steps WHERE migration_id = ? ORDER BY position",
-        (mig_id,),
-    )
-    steps = [
-        {"id": s["id"], "name": s["name"], "position": s["position"],
-         "step_type": s["step_type"], "config": json.loads(s["config"])}
-        for s in step_rows
-    ]
+    step_rows = await step_repo.list_by_migration(mig_id)
+    steps = _load_steps_for_pipeline(step_rows)
 
     manager = request.app.state.connection_manager
     adapter_factory = _get_adapter_factory(request)
@@ -225,7 +195,6 @@ async def test_migration_stream(mig_id: str, request: Request):
         async def run_pipeline():
             source_adapter = None
             try:
-                # Connect to source
                 await queue.put({"type": "step_start", "node_id": "_connect",
                                  "name": "Connecting to source",
                                  "timestamp": datetime.now(timezone.utc).isoformat()})
@@ -240,7 +209,6 @@ async def test_migration_stream(mig_id: str, request: Request):
                                  "duration_ms": dur,
                                  "timestamp": datetime.now(timezone.utc).isoformat()})
 
-                # Get target schema if configured
                 target_schema = None
                 if row["target_connection_id"] and row["target_table"]:
                     target_conn = await manager.get(row["target_connection_id"])
@@ -289,31 +257,21 @@ async def test_migration_stream(mig_id: str, request: Request):
 @router.post("/migrations/{mig_id}/run-stream")
 async def run_migration_stream(mig_id: str, request: Request):
     """SSE endpoint that streams step-by-step run progress, then writes to target."""
-    db = _get_db(request)
-    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    mig_repo, step_repo, _ = _get_repos(request)
+    row = await mig_repo.get(mig_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
     if row["status"] == "running":
         raise HTTPException(status_code=409, detail="Migration is already running")
 
-    step_rows = await db.fetch_all(
-        "SELECT * FROM pipeline_steps WHERE migration_id = ? ORDER BY position",
-        (mig_id,),
-    )
-    steps = [
-        {"id": s["id"], "name": s["name"], "position": s["position"],
-         "step_type": s["step_type"], "config": json.loads(s["config"])}
-        for s in step_rows
-    ]
+    step_rows = await step_repo.list_by_migration(mig_id)
+    steps = _load_steps_for_pipeline(step_rows)
 
     manager = request.app.state.connection_manager
     adapter_factory = _get_adapter_factory(request)
     settings = request.app.state.settings
 
-    await db.execute(
-        "UPDATE migrations SET status = 'running', rows_processed = 0, error_message = NULL, updated_at = ? WHERE id = ?",
-        (datetime.now(timezone.utc).isoformat(), mig_id),
-    )
+    await mig_repo.update_status(mig_id, "running", rows_processed=0)
 
     async def event_generator():
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -384,10 +342,7 @@ async def run_migration_stream(mig_id: str, request: Request):
                         for e in s.get("validation", {}).get("errors", []):
                             error_msgs.append(e.get("message", "Unknown error"))
                     msg = "; ".join(error_msgs) or "Pipeline failed"
-                    await db.execute(
-                        "UPDATE migrations SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?",
-                        (msg, datetime.now(timezone.utc).isoformat(), mig_id),
-                    )
+                    await mig_repo.update_status(mig_id, "failed", error_message=msg)
                     return
 
                 # Get final transformed rows from the last non-target step
@@ -397,10 +352,7 @@ async def run_migration_stream(mig_id: str, request: Request):
                 transformed = final_step["sample_data"] if final_step else []
 
                 if not transformed:
-                    await db.execute(
-                        "UPDATE migrations SET status = 'completed', rows_processed = 0, total_rows = 0, updated_at = ? WHERE id = ?",
-                        (datetime.now(timezone.utc).isoformat(), mig_id),
-                    )
+                    await mig_repo.update_status(mig_id, "completed", rows_processed=0, total_rows=0)
                     await queue.put({"type": "info", "message": "No rows to write",
                                      "timestamp": datetime.now(timezone.utc).isoformat()})
                     return
@@ -436,18 +388,12 @@ async def run_migration_stream(mig_id: str, request: Request):
                                  "row_count": rows_written,
                                  "timestamp": datetime.now(timezone.utc).isoformat()})
 
-                await db.execute(
-                    "UPDATE migrations SET status = 'completed', rows_processed = ?, total_rows = ?, updated_at = ? WHERE id = ?",
-                    (rows_written, rows_written, datetime.now(timezone.utc).isoformat(), mig_id),
-                )
+                await mig_repo.update_status(mig_id, "completed", rows_processed=rows_written, total_rows=rows_written)
 
             except Exception as e:
                 await queue.put({"type": "error", "error": str(e),
                                  "timestamp": datetime.now(timezone.utc).isoformat()})
-                await db.execute(
-                    "UPDATE migrations SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?",
-                    (str(e), datetime.now(timezone.utc).isoformat(), mig_id),
-                )
+                await mig_repo.update_status(mig_id, "failed", error_message=str(e))
             finally:
                 if source_adapter:
                     await source_adapter.disconnect()
@@ -472,18 +418,15 @@ async def run_migration_stream(mig_id: str, request: Request):
 
 @router.post("/migrations/{mig_id}/run")
 async def run_migration(mig_id: str, request: Request):
-    db = _get_db(request)
-    row = await db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    mig_repo, _, transform_repo = _get_repos(request)
+    row = await mig_repo.get(mig_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
     if row["status"] == "running":
         raise HTTPException(status_code=409, detail="Migration is already running")
 
     settings = request.app.state.settings
-    await db.execute(
-        "UPDATE migrations SET status = 'running', rows_processed = 0, error_message = NULL, updated_at = ? WHERE id = ?",
-        (datetime.now(timezone.utc).isoformat(), mig_id),
-    )
+    await mig_repo.update_status(mig_id, "running", rows_processed=0)
 
     cancel_flag = asyncio.Event()
     _running_migrations[mig_id] = cancel_flag
@@ -497,17 +440,14 @@ async def run_migration(mig_id: str, request: Request):
         source_adapter = await adapter_factory.create(source_conn)
         target_adapter = await adapter_factory.create(target_conn)
 
-        transforms = await _get_transformations(db, mig_id)
-        transform_dicts = [{"type": t.type, "config": t.config} for t in transforms]
+        transform_rows = await transform_repo.list_by_migration(mig_id)
+        transform_dicts = [{"type": r["type"], "config": json.loads(r["config"])} for r in transform_rows]
 
         engine = TransformationEngine()
         runner = MigrationRunner(engine=engine)
 
         async def on_progress(rows_done, total):
-            await db.execute(
-                "UPDATE migrations SET rows_processed = ?, total_rows = ?, updated_at = ? WHERE id = ?",
-                (rows_done, total, datetime.now(timezone.utc).isoformat(), mig_id),
-            )
+            await mig_repo.update_status(mig_id, "running", rows_processed=rows_done, total_rows=total)
 
         try:
             result = await runner.run(
@@ -522,15 +462,9 @@ async def run_migration(mig_id: str, request: Request):
                 on_progress=on_progress,
                 cancel_flag=cancel_flag,
             )
-            await db.execute(
-                "UPDATE migrations SET status = ?, rows_processed = ?, updated_at = ? WHERE id = ?",
-                (result["status"], result["rows_processed"], datetime.now(timezone.utc).isoformat(), mig_id),
-            )
+            await mig_repo.update_status(mig_id, result["status"], rows_processed=result["rows_processed"])
         except Exception as e:
-            await db.execute(
-                "UPDATE migrations SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?",
-                (str(e), datetime.now(timezone.utc).isoformat(), mig_id),
-            )
+            await mig_repo.update_status(mig_id, "failed", error_message=str(e))
         finally:
             await source_adapter.disconnect()
             await target_adapter.disconnect()
@@ -552,11 +486,8 @@ async def cancel_migration(mig_id: str, request: Request):
 
 @router.get("/migrations/{mig_id}/status")
 async def get_migration_status(mig_id: str, request: Request):
-    db = _get_db(request)
-    row = await db.fetch_one(
-        "SELECT status, rows_processed, total_rows, error_message FROM migrations WHERE id = ?",
-        (mig_id,),
-    )
+    mig_repo, _, _ = _get_repos(request)
+    row = await mig_repo.get_status(mig_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Migration not found")
     return dict(row)
