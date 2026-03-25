@@ -11,6 +11,7 @@ from vonnegut.adapters.factory import DefaultAdapterFactory
 from vonnegut.repositories import (
     ConnectionRepository,
     MigrationRepository,
+    PipelineMetadataRepository,
     PipelineStepRepository,
     TransformationRepository,
 )
@@ -28,6 +29,7 @@ def _init_repositories(app: FastAPI, db: AppDatabase, encryption_key: str) -> No
     app.state.db = db
     conn_repo = ConnectionRepository(db)
     app.state.migration_repo = MigrationRepository(db)
+    app.state.pipeline_metadata_repo = PipelineMetadataRepository(db)
     app.state.pipeline_step_repo = PipelineStepRepository(db)
     app.state.transformation_repo = TransformationRepository(db)
     app.state.connection_manager = ConnectionManager(
@@ -68,6 +70,7 @@ def create_app(
     app.state.settings = settings
     app.state.adapter_factory = adapter_factory or DefaultAdapterFactory()
     app.state.migration_repo = None
+    app.state.pipeline_metadata_repo = None
     app.state.pipeline_step_repo = None
     app.state.transformation_repo = None
     app.state.connection_manager = None

@@ -11,6 +11,13 @@ def _get_repos(request: Request):
     return request.app.state.migration_repo, request.app.state.pipeline_step_repo
 
 
+async def _invalidate_metadata(request: Request, mig_id: str) -> None:
+    """Reset validation to DRAFT when pipeline steps change."""
+    metadata_repo = request.app.state.pipeline_metadata_repo
+    if metadata_repo is not None:
+        await metadata_repo.reset_to_draft(mig_id)
+
+
 @router.post(
     "/migrations/{mig_id}/steps",
     response_model=PipelineStepResponse,
@@ -34,6 +41,8 @@ async def add_step(mig_id: str, body: PipelineStepCreate, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    await _invalidate_metadata(request, mig_id)
+
     return PipelineStepResponse(
         id=row["id"], migration_id=row["migration_id"], name=row["name"],
         description=row["description"], position=row["position"],
@@ -53,6 +62,8 @@ async def update_step(mig_id: str, step_id: str, body: PipelineStepUpdate, reque
     if row is None:
         raise HTTPException(status_code=404, detail="Pipeline step not found")
 
+    await _invalidate_metadata(request, mig_id)
+
     return PipelineStepResponse(
         id=row["id"], migration_id=row["migration_id"], name=row["name"],
         description=row["description"], position=row["position"],
@@ -70,3 +81,5 @@ async def delete_step(mig_id: str, step_id: str, request: Request):
     deleted = await step_repo.delete(step_id, mig_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Pipeline step not found")
+
+    await _invalidate_metadata(request, mig_id)

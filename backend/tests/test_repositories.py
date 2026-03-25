@@ -4,6 +4,7 @@ import pytest
 from vonnegut.repositories import (
     ConnectionRepository,
     MigrationRepository,
+    PipelineMetadataRepository,
     PipelineStepRepository,
     TransformationRepository,
 )
@@ -22,6 +23,11 @@ def mig_repo(db):
 @pytest.fixture
 def step_repo(db):
     return PipelineStepRepository(db)
+
+
+@pytest.fixture
+def metadata_repo(db):
+    return PipelineMetadataRepository(db)
 
 
 @pytest.fixture
@@ -198,3 +204,50 @@ class TestTransformationRepository:
         assert rows[0]["order"] == 0
         assert rows[1]["id"] == t1["id"]
         assert rows[1]["order"] == 1
+
+
+class TestPipelineMetadataRepository:
+    @pytest.mark.asyncio
+    async def test_get_or_create(self, conn_repo, mig_repo, metadata_repo):
+        mig = await _create_migration(conn_repo, mig_repo)
+        row = await metadata_repo.get_or_create(mig["id"])
+        assert row["validation_status"] == "DRAFT"
+        assert row["validated_hash"] is None
+        # Second call returns same row
+        row2 = await metadata_repo.get_or_create(mig["id"])
+        assert row2["migration_id"] == row["migration_id"]
+
+    @pytest.mark.asyncio
+    async def test_update_validation_valid(self, conn_repo, mig_repo, metadata_repo):
+        mig = await _create_migration(conn_repo, mig_repo)
+        schemas = {"source": [{"name": "id", "type": "int64"}]}
+        row = await metadata_repo.update_validation(
+            mig["id"], "VALID", validated_hash="abc123", node_schemas=schemas,
+        )
+        assert row["validation_status"] == "VALID"
+        assert row["validated_hash"] == "abc123"
+        assert row["last_validated_at"] is not None
+        assert json.loads(row["node_schemas"]) == schemas
+
+    @pytest.mark.asyncio
+    async def test_update_validation_invalid(self, conn_repo, mig_repo, metadata_repo):
+        mig = await _create_migration(conn_repo, mig_repo)
+        row = await metadata_repo.update_validation(mig["id"], "INVALID")
+        assert row["validation_status"] == "INVALID"
+        assert row["validated_hash"] is None
+
+    @pytest.mark.asyncio
+    async def test_reset_to_draft(self, conn_repo, mig_repo, metadata_repo):
+        mig = await _create_migration(conn_repo, mig_repo)
+        await metadata_repo.update_validation(mig["id"], "VALID", validated_hash="abc")
+        await metadata_repo.reset_to_draft(mig["id"])
+        row = await metadata_repo.get(mig["id"])
+        assert row["validation_status"] == "DRAFT"
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete(self, conn_repo, mig_repo, metadata_repo):
+        mig = await _create_migration(conn_repo, mig_repo)
+        await metadata_repo.get_or_create(mig["id"])
+        await mig_repo.delete(mig["id"])
+        row = await metadata_repo.get(mig["id"])
+        assert row is None

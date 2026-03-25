@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS transformations (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pipeline_metadata (
+    migration_id TEXT PRIMARY KEY REFERENCES migrations(id) ON DELETE CASCADE,
+    validation_status TEXT NOT NULL DEFAULT 'DRAFT'
+        CHECK(validation_status IN ('DRAFT', 'VALIDATING', 'VALID', 'INVALID')),
+    validated_hash TEXT,
+    last_validated_at TEXT,
+    node_schemas TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
 """
 
 
