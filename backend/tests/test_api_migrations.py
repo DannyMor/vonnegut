@@ -1,4 +1,6 @@
 # backend/tests/test_api_migrations.py
+import json
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -100,3 +102,66 @@ async def test_delete_migration(client):
     mig_id = create_resp.json()["id"]
     resp = await client.delete(f"/api/v1/migrations/{mig_id}")
     assert resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_run_stream_requires_validation(client):
+    src_id, tgt_id = await _create_connections(client)
+    create_resp = await client.post("/api/v1/migrations", json={
+        "name": "Gated", "source_connection_id": src_id, "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    mig_id = create_resp.json()["id"]
+    resp = await client.post(f"/api/v1/migrations/{mig_id}/run-stream")
+    assert resp.status_code == 409
+    assert "validated" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_run_requires_validation(client):
+    src_id, tgt_id = await _create_connections(client)
+    create_resp = await client.post("/api/v1/migrations", json={
+        "name": "Gated", "source_connection_id": src_id, "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    mig_id = create_resp.json()["id"]
+    resp = await client.post(f"/api/v1/migrations/{mig_id}/run")
+    assert resp.status_code == 409
+    assert "validated" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_run_stream_allowed_when_valid(app, client):
+    """Run-stream should pass the validation gate when metadata is VALID."""
+    src_id, tgt_id = await _create_connections(client)
+    create_resp = await client.post("/api/v1/migrations", json={
+        "name": "Valid Run", "source_connection_id": src_id, "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    mig_id = create_resp.json()["id"]
+
+    # Manually set metadata to VALID
+    metadata_repo = app.state.pipeline_metadata_repo
+    await metadata_repo.get_or_create(mig_id)
+    await metadata_repo.update_validation(mig_id, "VALID", validated_hash="abc123")
+
+    # Should pass the validation gate (will fail later on connection, but not 409)
+    resp = await client.post(f"/api/v1/migrations/{mig_id}/run-stream")
+    assert resp.status_code != 409
+
+
+@pytest.mark.asyncio
+async def test_validation_endpoint(app, client):
+    src_id, tgt_id = await _create_connections(client)
+    create_resp = await client.post("/api/v1/migrations", json={
+        "name": "Check Validation", "source_connection_id": src_id,
+        "target_connection_id": tgt_id,
+        "source_table": "t1", "target_table": "t2",
+    })
+    mig_id = create_resp.json()["id"]
+
+    resp = await client.get(f"/api/v1/migrations/{mig_id}/validation")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["validation_status"] == "DRAFT"
+    assert data["validated_hash"] is None
