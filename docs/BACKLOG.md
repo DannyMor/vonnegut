@@ -51,7 +51,7 @@ Updated as work progresses.
 - [x] 5 metadata repository tests
 
 ### Test Suite
-- [x] 246 tests, all green
+- [x] 255 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
 - [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
@@ -76,8 +76,8 @@ Updated as work progresses.
 
 ### P1 — Validation & Safety
 
-- [ ] **Source validation rules** — ConnectionRule (can we connect?), QueryExecutionRule (does the source query run?)
-- [ ] **Target validation rules** — ConnectionRule, SchemaAvailabilityRule (does target table exist?)
+- [x] **Source validation rules** — check_source_connection, check_source_query pre-flight checks. Done in PR #16.
+- [x] **Target validation rules** — check_target_connection, check_target_table pre-flight checks. Done in PR #16.
 - [x] **Execution-based validation rules** — SqlExecutionRule, CodeExecutionRule, SchemaStabilityRule. Done in PR #15.
 - [x] **SchemaStabilityRule** — re-runs code transforms on data subsets to detect unstable schemas. Done in PR #15.
 
