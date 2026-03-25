@@ -5,6 +5,7 @@ import pyarrow as pa
 from vonnegut.pipeline.dag.node import SqlNodeConfig
 from vonnegut.pipeline.dag.plan import ExecutionContext
 from vonnegut.pipeline.engine.executor.base import NodeExecutor
+from vonnegut.pipeline.sql_utils import resolve_prev_reference
 
 
 class SqlExecutor(NodeExecutor):
@@ -21,7 +22,7 @@ class SqlExecutor(NodeExecutor):
         try:
             if input_table is not None:
                 conn.register("prev", input_table)
-                sql = expression.replace("{prev}", "prev")
+                sql = resolve_prev_reference(expression, "prev")
             else:
                 sql = expression
 

@@ -1,11 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-import sqlglot
-from sqlglot import exp
-
 from vonnegut.pipeline.results import CheckResult, CheckStatus
 from vonnegut.pipeline.engine.validator.rules.base import ValidationRule
+from vonnegut.pipeline.sql_utils import parse_sql_strict
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -32,37 +30,12 @@ class SqlParseRule(ValidationRule):
         config = node.config
         assert isinstance(config, SqlNodeConfig)
 
-        expression = config.expression.strip()
-        parse_expr = expression.replace("{prev}", "__prev__")
-
-        try:
-            statements = sqlglot.parse(parse_expr, error_level=sqlglot.ErrorLevel.WARN)
-        except sqlglot.errors.ParseError as e:
+        _, error = parse_sql_strict(config.expression)
+        if error is not None:
             return CheckResult(
                 rule_name=self.name,
                 status=CheckStatus.FAILED,
-                message=f"SQL parse error: {e}",
-            )
-
-        if len(statements) > 1:
-            return CheckResult(
-                rule_name=self.name,
-                status=CheckStatus.FAILED,
-                message="SQL must be a single statement (no semicolons)",
-            )
-
-        if not statements or statements[0] is None:
-            return CheckResult(
-                rule_name=self.name,
-                status=CheckStatus.FAILED,
-                message="SQL expression is empty or could not be parsed",
-            )
-
-        if not isinstance(statements[0], exp.Select):
-            return CheckResult(
-                rule_name=self.name,
-                status=CheckStatus.FAILED,
-                message=f"SQL must be a SELECT statement, got: {type(statements[0]).__name__}",
+                message=error,
             )
 
         return CheckResult(
