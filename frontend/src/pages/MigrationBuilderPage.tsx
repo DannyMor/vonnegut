@@ -42,6 +42,7 @@ export function MigrationBuilderPage() {
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [testStartedAt, setTestStartedAt] = useState<number | null>(null);
   const [validationStatus, setValidationStatus] = useState<ValidationStatus>("DRAFT");
+  const [dirty, setDirty] = useState(false);
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const lastNodeIdRef = useRef<string>("source");
 
@@ -138,6 +139,7 @@ export function MigrationBuilderPage() {
         });
       }
     }
+    setDirty(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
       throw e;
@@ -196,12 +198,14 @@ export function MigrationBuilderPage() {
     setLogEntries([]);
     setPanelOpen(true);
     setBottomTab("run");
-    try {
-      await handleSave();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed before run");
-      setRunning(false);
-      return;
+    if (dirty) {
+      try {
+        await handleSave();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Save failed before run");
+        setRunning(false);
+        return;
+      }
     }
     const now = new Date().toISOString();
     const startTime = Date.now();
@@ -269,6 +273,7 @@ export function MigrationBuilderPage() {
       steps.forEach((s, i) => { s.position = i; });
       return { ...prev, pipeline_steps: steps };
     });
+    setDirty(true);
     setValidationStatus("DRAFT");
   }, []);
 
@@ -279,6 +284,7 @@ export function MigrationBuilderPage() {
       steps.forEach((s, i) => { s.position = i; });
       return { ...prev, pipeline_steps: steps };
     });
+    setDirty(true);
     setValidationStatus("DRAFT");
     setSelectedNodeId((cur) => cur === stepId ? null : cur);
     if (lastNodeIdRef.current === stepId) lastNodeIdRef.current = "source";
@@ -289,6 +295,7 @@ export function MigrationBuilderPage() {
       if (!prev) return prev;
       return { ...prev, ...updates };
     });
+    setDirty(true);
   }, []);
 
   const handleUpdateStep = useCallback((stepId: string, updates: Record<string, unknown>) => {
@@ -309,6 +316,7 @@ export function MigrationBuilderPage() {
       });
       return { ...prev, pipeline_steps: steps };
     });
+    setDirty(true);
     if ("config" in updates) setValidationStatus("DRAFT");
   }, []);
 
