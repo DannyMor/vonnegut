@@ -51,7 +51,7 @@ Updated as work progresses.
 - [x] 5 metadata repository tests
 
 ### Test Suite
-- [x] 231 tests, all green
+- [x] 235 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
 - [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
@@ -72,7 +72,7 @@ Updated as work progresses.
 
 - [x] **Persist pipeline metadata to DB** — ~~inferred schemas, validation status, validated_hash are currently in-memory only.~~ Done in PR #13.
 
-- [ ] **Wire PipelineManager into API endpoints** — currently PipelineRunner is called directly from routers. The PipelineManager (with hash-based validation gating) exists but isn't wired to the API. This would enforce validate-before-run.
+- [x] **Wire PipelineManager into API endpoints** — ~~currently PipelineRunner is called directly from routers.~~ Validation gate added to run/run-stream endpoints. Done in PR #14.
 
 ### P1 — Validation & Safety
 
