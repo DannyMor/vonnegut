@@ -197,6 +197,62 @@ class TestMergeSqlNodesRule:
         assert "sql2" in result.nodes
         assert len(result.nodes) == 5
 
+    def test_does_not_merge_aggregation_nodes(self):
+        """Nodes with GROUP BY / aggregation should not be merged."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT name, COUNT(*) AS cnt FROM {prev} GROUP BY name"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = MergeSqlNodesRule().apply(plan, _CTX)
+        # Should NOT merge: sql2 has aggregation
+        assert "sql1" in result.nodes
+        assert "sql2" in result.nodes
+
+    def test_does_not_merge_window_function_nodes(self):
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT *, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = MergeSqlNodesRule().apply(plan, _CTX)
+        assert "sql1" in result.nodes
+        assert "sql2" in result.nodes
+
+    def test_does_not_merge_distinct_nodes(self):
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT DISTINCT name FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = MergeSqlNodesRule().apply(plan, _CTX)
+        assert "sql1" in result.nodes
+        assert "sql2" in result.nodes
+
     def test_merged_sql_resolves_prev_references(self):
         plan = LogicalPlan(
             nodes={
