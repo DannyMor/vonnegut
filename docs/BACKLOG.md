@@ -42,10 +42,18 @@ Updated as work progresses.
 - [x] ConnectionManager refactored to use ConnectionRepository
 - [x] Transaction support (context manager on SqliteDatabase)
 
+### Pipeline Metadata Persistence (P0)
+- [x] `pipeline_metadata` table — validation_status, validated_hash, node_schemas, timestamps
+- [x] PipelineMetadataRepository — get_or_create, update_validation, reset_to_draft
+- [x] PipelineRunner persists validation results after test runs
+- [x] Auto-invalidation — step CRUD resets metadata to DRAFT
+- [x] GET /migrations/{mig_id}/validation endpoint
+- [x] 5 metadata repository tests
+
 ### Test Suite
-- [x] 226 tests, all green
+- [x] 231 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
-- [x] Repository unit tests (18 tests)
+- [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
 - [x] API integration tests
 - [x] Adapter tests (direct, exec, memory)
@@ -62,7 +70,7 @@ Updated as work progresses.
 
 ### P0 — Core Functionality Gaps
 
-- [ ] **Persist pipeline metadata to DB** — inferred schemas, validation status, validated_hash are currently in-memory only. Need NodeSchemaRepository + migration table updates. Without this, validation state is lost on server restart.
+- [x] **Persist pipeline metadata to DB** — ~~inferred schemas, validation status, validated_hash are currently in-memory only.~~ Done in PR #13.
 
 - [ ] **Wire PipelineManager into API endpoints** — currently PipelineRunner is called directly from routers. The PipelineManager (with hash-based validation gating) exists but isn't wired to the API. This would enforce validate-before-run.
 
