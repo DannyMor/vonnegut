@@ -50,8 +50,13 @@ Updated as work progresses.
 - [x] GET /migrations/{mig_id}/validation endpoint
 - [x] 5 metadata repository tests
 
+### sqlglot SQL Analysis (P2 refactor)
+- [x] Shared `sql_utils` module — parse_sql, is_select_star, is_safe_to_merge, resolve_prev_reference, build_cte_chain
+- [x] All SQL analysis uses sqlglot AST instead of regex
+- [x] Merge safety guards — skip aggregation, window functions, DISTINCT, subqueries, non-deterministic functions
+
 ### Test Suite
-- [x] 265 tests, all green
+- [x] 301 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
 - [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
