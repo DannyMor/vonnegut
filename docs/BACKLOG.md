@@ -98,9 +98,9 @@ Updated as work progresses.
 
 ### P3 — Frontend Improvements
 
-- [ ] **Richer validation display** — show structured validation results (per-rule pass/fail) in the pipeline builder UI
-- [ ] **Better error messages** — surface validation rule details (not just generic error strings)
-- [ ] **Pipeline status indicators** — show DRAFT/VALID/INVALID status in the UI
+- [x] **Richer validation display** — per-step pass/fail icons on pipeline nodes, target validation status from test results. Done in PR #21.
+- [x] **Better error messages** — structured validation errors in run log with column-level detail. Done in PR #21.
+- [x] **Pipeline status indicators** — DRAFT/VALIDATING/VALID/INVALID badge in toolbar, auto-reset on step changes. Done in PR #21.
 
 ### P4 — Cleanup & Quality
 
