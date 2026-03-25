@@ -5,6 +5,7 @@ from vonnegut.pipeline.engine.optimizer.rules.base import OptimizationContext
 from vonnegut.pipeline.engine.optimizer.rules.noop_removal import NoOpRemovalRule
 from vonnegut.pipeline.engine.optimizer.rules.merge_sql import MergeSqlNodesRule
 from vonnegut.pipeline.engine.optimizer.rules.column_pruning import ColumnPruningRule
+from vonnegut.pipeline.engine.optimizer.rules.predicate_pushdown import PredicatePushdownRule
 
 
 def _src_node(nid="src"):
@@ -434,3 +435,182 @@ class TestColumnPruningRule:
         assert "age" not in pruned.config.expression
         assert "id" in pruned.config.expression
         assert "name" in pruned.config.expression
+
+
+class TestPredicatePushdownRule:
+    def test_pushes_where_into_upstream_sql(self):
+        """Push WHERE from sql2 into sql1."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id, name FROM {prev} WHERE id > 10"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, _CTX)
+
+        # Predicate should be pushed into sql1
+        upstream = result.nodes["sql1"]
+        assert isinstance(upstream.config, SqlNodeConfig)
+        assert "WHERE" in upstream.config.expression.upper()
+        assert "10" in upstream.config.expression
+
+        # sql2 should no longer have WHERE
+        downstream = result.nodes["sql2"]
+        assert isinstance(downstream.config, SqlNodeConfig)
+        assert "WHERE" not in downstream.config.expression.upper()
+
+    def test_combines_with_existing_where(self):
+        """Push WHERE into upstream that already has a WHERE clause."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev} WHERE name IS NOT NULL"),
+                "sql2": _sql_node("sql2", "SELECT id, name FROM {prev} WHERE id > 10"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, _CTX)
+
+        upstream = result.nodes["sql1"]
+        assert isinstance(upstream.config, SqlNodeConfig)
+        # Both conditions should be present (combined with AND)
+        expr_upper = upstream.config.expression.upper()
+        assert "AND" in expr_upper
+
+    def test_no_push_when_no_where(self):
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id FROM {prev}"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, _CTX)
+        assert result is plan  # No changes
+
+    def test_no_push_when_upstream_is_source(self):
+        """Don't push into non-SQL upstream nodes."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT * FROM {prev} WHERE id > 10"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, _CTX)
+        assert result is plan  # Source is not SQL, can't push
+
+    def test_no_push_when_upstream_is_unsafe(self):
+        """Don't push into upstream with aggregation."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT name, COUNT(*) AS cnt FROM {prev} GROUP BY name"),
+                "sql2": _sql_node("sql2", "SELECT name, cnt FROM {prev} WHERE cnt > 5"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, _CTX)
+        assert result is plan  # Upstream has aggregation
+
+    def test_no_push_when_downstream_is_unsafe(self):
+        """Don't push from a node with aggregation."""
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT name, COUNT(*) AS cnt FROM {prev} GROUP BY name"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, _CTX)
+        assert result is plan  # Downstream has aggregation, UNSAFE tier
+
+    def test_no_push_when_column_not_in_upstream(self):
+        """Don't push if predicate references a column not in upstream output."""
+        from vonnegut.pipeline.schema.types import Schema, Column, DataType
+        ctx = OptimizationContext(
+            node_schemas={
+                "sql1": Schema(columns=[
+                    Column(name="id", dtype=DataType.INT64),
+                    Column(name="name", dtype=DataType.UTF8),
+                ]),
+            }
+        )
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id FROM {prev} WHERE age > 18"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, ctx)
+        assert result is plan  # 'age' not in upstream schema
+
+    def test_push_with_schema_validation(self):
+        """Push succeeds when schema confirms predicate columns exist in upstream."""
+        from vonnegut.pipeline.schema.types import Schema, Column, DataType
+        ctx = OptimizationContext(
+            node_schemas={
+                "sql1": Schema(columns=[
+                    Column(name="id", dtype=DataType.INT64),
+                    Column(name="name", dtype=DataType.UTF8),
+                    Column(name="active", dtype=DataType.BOOLEAN),
+                ]),
+            }
+        )
+        plan = LogicalPlan(
+            nodes={
+                "src": _src_node(),
+                "sql1": _sql_node("sql1", "SELECT id, name, active FROM {prev}"),
+                "sql2": _sql_node("sql2", "SELECT id, name FROM {prev} WHERE active = TRUE"),
+                "tgt": _tgt_node(),
+            },
+            edges=[
+                PlanEdge(from_node_id="src", to_node_id="sql1"),
+                PlanEdge(from_node_id="sql1", to_node_id="sql2"),
+                PlanEdge(from_node_id="sql2", to_node_id="tgt"),
+            ],
+        )
+        result = PredicatePushdownRule().apply(plan, ctx)
+        upstream = result.nodes["sql1"]
+        assert isinstance(upstream.config, SqlNodeConfig)
+        assert "WHERE" in upstream.config.expression.upper()
