@@ -14,14 +14,9 @@ from vonnegut.models.migration import MigrationCreate, MigrationResponse, Migrat
 from vonnegut.models.pipeline import PipelineStepResponse
 from vonnegut.models.transformation import TransformationResponse
 from vonnegut.pipeline.pipeline_runner import PipelineRunner
-from vonnegut.services.transformation_engine import TransformationEngine
-from vonnegut.services.migration_runner import MigrationRunner
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["migrations"])
-
-# In-memory state for running migrations
-_running_migrations: dict[str, asyncio.Event] = {}
 
 
 def _get_repos(request: Request):
@@ -428,91 +423,6 @@ async def run_migration_stream(mig_id: str, request: Request):
             task.cancel()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@router.post("/migrations/{mig_id}/run")
-async def run_migration(mig_id: str, request: Request):
-    mig_repo, _, transform_repo = _get_repos(request)
-    row = await mig_repo.get(mig_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Migration not found")
-    if row["status"] == "running":
-        raise HTTPException(status_code=409, detail="Migration is already running")
-
-    metadata_repo = request.app.state.pipeline_metadata_repo
-    metadata = await metadata_repo.get_or_create(mig_id)
-    if metadata["validation_status"] != "VALID":
-        raise HTTPException(
-            status_code=409,
-            detail="Pipeline must be validated before running. Run a test first.",
-        )
-
-    settings = request.app.state.settings
-    await mig_repo.update_status(mig_id, "running", rows_processed=0)
-
-    cancel_flag = asyncio.Event()
-    _running_migrations[mig_id] = cancel_flag
-
-    adapter_factory = _get_adapter_factory(request)
-
-    async def _run():
-        manager = request.app.state.connection_manager
-        source_conn = await manager.get(row["source_connection_id"])
-        target_conn = await manager.get(row["target_connection_id"])
-        source_adapter = await adapter_factory.create(source_conn)
-        target_adapter = await adapter_factory.create(target_conn)
-
-        transform_rows = await transform_repo.list_by_migration(mig_id)
-        transform_dicts = [{"type": r["type"], "config": json.loads(r["config"])} for r in transform_rows]
-
-        engine = TransformationEngine()
-        runner = MigrationRunner(engine=engine)
-
-        async def on_progress(rows_done, total):
-            await mig_repo.update_status(mig_id, "running", rows_processed=rows_done, total_rows=total)
-
-        try:
-            result = await runner.run(
-                source_adapter=source_adapter,
-                target_adapter=target_adapter,
-                source_table=row["source_table"],
-                target_table=row["target_table"],
-                transformations=transform_dicts,
-                truncate_target=bool(row["truncate_target"]),
-                row_limit=settings.migration_row_limit,
-                batch_size=settings.migration_batch_size,
-                on_progress=on_progress,
-                cancel_flag=cancel_flag,
-            )
-            await mig_repo.update_status(mig_id, result["status"], rows_processed=result["rows_processed"])
-        except Exception as e:
-            await mig_repo.update_status(mig_id, "failed", error_message=str(e))
-        finally:
-            await source_adapter.disconnect()
-            await target_adapter.disconnect()
-            _running_migrations.pop(mig_id, None)
-
-    task = asyncio.create_task(_run())
-    task.add_done_callback(lambda t: logger.error("Migration task %s failed: %s", mig_id, t.exception()) if t.exception() else None)
-    return {"status": "started", "migration_id": mig_id}
-
-
-@router.post("/migrations/{mig_id}/cancel")
-async def cancel_migration(mig_id: str, request: Request):
-    cancel_flag = _running_migrations.get(mig_id)
-    if cancel_flag is None:
-        raise HTTPException(status_code=404, detail="No running migration found")
-    cancel_flag.set()
-    return {"status": "cancelling", "migration_id": mig_id}
-
-
-@router.get("/migrations/{mig_id}/status")
-async def get_migration_status(mig_id: str, request: Request):
-    mig_repo, _, _ = _get_repos(request)
-    row = await mig_repo.get_status(mig_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Migration not found")
-    return dict(row)
 
 
 @router.get("/migrations/{mig_id}/validation")

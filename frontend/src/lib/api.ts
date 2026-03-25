@@ -103,8 +103,6 @@ export const api = {
       });
       return { abort: () => controller.abort() };
     },
-    run: (id: string) =>
-      request<{ status: string; migration_id: string }>(`/migrations/${id}/run`, { method: "POST" }),
     runStream: (id: string, onEvent: (event: Record<string, unknown>) => void): { abort: () => void } => {
       const controller = new AbortController();
       fetch(`${BASE}/migrations/${id}/run-stream`, {
@@ -141,12 +139,6 @@ export const api = {
       });
       return { abort: () => controller.abort() };
     },
-    cancel: (id: string) =>
-      request<{ status: string }>(`/migrations/${id}/cancel`, { method: "POST" }),
-    status: (id: string) =>
-      request<{ status: string; rows_processed: number | null; total_rows: number | null; error_message: string | null }>(
-        `/migrations/${id}/status`
-      ),
     validation: (id: string) =>
       request<{ migration_id: string; validation_status: string; validated_hash: string | null; last_validated_at: string | null }>(
         `/migrations/${id}/validation`

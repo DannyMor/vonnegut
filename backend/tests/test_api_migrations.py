@@ -118,19 +118,6 @@ async def test_run_stream_requires_validation(client):
 
 
 @pytest.mark.asyncio
-async def test_run_requires_validation(client):
-    src_id, tgt_id = await _create_connections(client)
-    create_resp = await client.post("/api/v1/migrations", json={
-        "name": "Gated", "source_connection_id": src_id, "target_connection_id": tgt_id,
-        "source_table": "t1", "target_table": "t2",
-    })
-    mig_id = create_resp.json()["id"]
-    resp = await client.post(f"/api/v1/migrations/{mig_id}/run")
-    assert resp.status_code == 409
-    assert "validated" in resp.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
 async def test_run_stream_allowed_when_valid(app, client):
     """Run-stream should pass the validation gate when metadata is VALID."""
     src_id, tgt_id = await _create_connections(client)
