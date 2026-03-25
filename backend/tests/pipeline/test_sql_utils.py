@@ -13,6 +13,10 @@ from vonnegut.pipeline.sql_utils import (
     get_consumed_columns,
     prune_columns,
     optimize_sql,
+    extract_where_predicate,
+    get_predicate_columns,
+    add_where_to_sql,
+    remove_where,
 )
 
 
@@ -262,6 +266,77 @@ class TestPruneColumns:
         # If pruning would remove all columns, keep them
         result = prune_columns("SELECT id, name FROM {prev}", {"other"})
         assert "SELECT" in result
+
+
+class TestExtractWherePredicate:
+    def test_extracts_simple_where(self):
+        pred = extract_where_predicate("SELECT * FROM {prev} WHERE id > 10")
+        assert pred is not None
+
+    def test_returns_none_without_where(self):
+        pred = extract_where_predicate("SELECT * FROM {prev}")
+        assert pred is None
+
+    def test_returns_none_for_empty(self):
+        assert extract_where_predicate("") is None
+
+    def test_extracts_compound_where(self):
+        pred = extract_where_predicate(
+            "SELECT * FROM {prev} WHERE id > 0 AND name IS NOT NULL"
+        )
+        assert pred is not None
+
+
+class TestGetPredicateColumns:
+    def test_simple_comparison(self):
+        pred = extract_where_predicate("SELECT * FROM {prev} WHERE id > 10")
+        cols = get_predicate_columns(pred)
+        assert "id" in cols
+
+    def test_compound_predicate(self):
+        pred = extract_where_predicate(
+            "SELECT * FROM {prev} WHERE id > 0 AND name = 'test'"
+        )
+        cols = get_predicate_columns(pred)
+        assert "id" in cols
+        assert "name" in cols
+
+
+class TestAddWhereToSql:
+    def test_adds_where_to_sql_without_where(self):
+        pred = extract_where_predicate("SELECT * FROM {prev} WHERE id > 10")
+        result = add_where_to_sql("SELECT id, name FROM {prev}", pred)
+        assert "WHERE" in result
+        assert "id > 10" in result
+        assert "{prev}" in result
+
+    def test_combines_with_existing_where(self):
+        pred = extract_where_predicate("SELECT * FROM {prev} WHERE id > 10")
+        result = add_where_to_sql(
+            "SELECT * FROM {prev} WHERE name IS NOT NULL", pred
+        )
+        assert "AND" in result
+        assert "10" in result
+        # sqlglot normalizes IS NOT NULL to NOT ... IS NULL
+        assert "NULL" in result
+
+
+class TestRemoveWhere:
+    def test_removes_where_clause(self):
+        result = remove_where("SELECT id, name FROM {prev} WHERE id > 10")
+        assert "WHERE" not in result
+        assert "id" in result
+        assert "name" in result
+        assert "{prev}" in result
+
+    def test_no_change_without_where(self):
+        original = "SELECT id FROM {prev}"
+        result = remove_where(original)
+        assert "WHERE" not in result
+        assert "id" in result
+
+    def test_empty_returns_empty(self):
+        assert remove_where("") == ""
 
 
 class TestOptimizeSql:

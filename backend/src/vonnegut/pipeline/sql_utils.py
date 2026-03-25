@@ -297,6 +297,60 @@ def prune_columns(expression: str, needed_columns: set[str]) -> str:
     return ast.sql()
 
 
+def extract_where_predicate(expression: str) -> exp.Expression | None:
+    """Extract the WHERE predicate from a SQL expression as an AST node.
+
+    Returns None if there is no WHERE clause or the expression can't be parsed.
+    """
+    ast = parse_sql(expression)
+    if ast is None or not isinstance(ast, exp.Select):
+        return None
+    where = ast.find(exp.Where)
+    if where is None:
+        return None
+    return where.this
+
+
+def get_predicate_columns(predicate: exp.Expression) -> set[str]:
+    """Get all column names referenced in a predicate expression."""
+    return {col.name for col in predicate.find_all(exp.Column)}
+
+
+def add_where_to_sql(expression: str, predicate: exp.Expression) -> str:
+    """Add a WHERE predicate to a SQL expression.
+
+    If the expression already has a WHERE clause, combines them with AND.
+    """
+    ast = parse_sql(expression)
+    if ast is None or not isinstance(ast, exp.Select):
+        return expression
+
+    existing_where = ast.find(exp.Where)
+    if existing_where is not None:
+        combined = exp.And(this=existing_where.this, expression=predicate.copy())
+        existing_where.set("this", combined)
+    else:
+        ast.set("where", exp.Where(this=predicate.copy()))
+
+    result = ast.sql()
+    return result.replace(_PREV_TABLE, PREV_PLACEHOLDER)
+
+
+def remove_where(expression: str) -> str:
+    """Remove the WHERE clause from a SQL expression."""
+    ast = parse_sql(expression)
+    if ast is None or not isinstance(ast, exp.Select):
+        return expression
+
+    where = ast.find(exp.Where)
+    if where is None:
+        return expression
+
+    where.pop()
+    result = ast.sql()
+    return result.replace(_PREV_TABLE, PREV_PLACEHOLDER)
+
+
 def build_cte_chain(steps: list[tuple[str, str]], keep_first_prev: bool = True) -> str:
     """Build a CTE chain from a list of (step_name, sql_expression) pairs.
 
