@@ -7,6 +7,12 @@ from vonnegut.pipeline.sql_utils import (
     is_safe_to_merge,
     resolve_prev_reference,
     build_cte_chain,
+    SafetyTier,
+    classify_safety,
+    get_produced_columns,
+    get_consumed_columns,
+    prune_columns,
+    optimize_sql,
 )
 
 
@@ -168,3 +174,101 @@ class TestBuildCteChain:
         result = build_cte_chain(steps)
         # _step_1 should reference _step_0, not {prev}
         assert "_step_0" in result
+
+
+class TestClassifySafety:
+    def test_simple_select_is_safe(self):
+        assert classify_safety("SELECT id, name FROM {prev}") == SafetyTier.SAFE
+
+    def test_where_is_safe(self):
+        assert classify_safety("SELECT * FROM {prev} WHERE id > 0") == SafetyTier.SAFE
+
+    def test_aggregation_is_unsafe(self):
+        assert classify_safety("SELECT COUNT(*) FROM {prev} GROUP BY id") == SafetyTier.UNSAFE
+
+    def test_window_is_unsafe(self):
+        assert classify_safety("SELECT ROW_NUMBER() OVER (ORDER BY id) FROM {prev}") == SafetyTier.UNSAFE
+
+    def test_distinct_is_unsafe(self):
+        assert classify_safety("SELECT DISTINCT name FROM {prev}") == SafetyTier.UNSAFE
+
+    def test_limit_is_partial(self):
+        assert classify_safety("SELECT * FROM {prev} LIMIT 10") == SafetyTier.PARTIAL
+
+    def test_empty_is_unsafe(self):
+        assert classify_safety("") == SafetyTier.UNSAFE
+
+    def test_is_safe_to_merge_allows_partial(self):
+        # PARTIAL tier nodes can still be CTE-merged
+        assert is_safe_to_merge("SELECT * FROM {prev} LIMIT 10") is True
+
+
+class TestGetProducedColumns:
+    def test_explicit_columns(self):
+        cols = get_produced_columns("SELECT id, name FROM {prev}")
+        assert cols == {"id", "name"}
+
+    def test_aliased_columns(self):
+        cols = get_produced_columns("SELECT id, UPPER(name) AS uname FROM {prev}")
+        assert "uname" in cols
+        assert "id" in cols
+
+    def test_star_returns_wildcard(self):
+        cols = get_produced_columns("SELECT * FROM {prev}")
+        assert cols == {"*"}
+
+    def test_empty_returns_empty(self):
+        assert get_produced_columns("") == set()
+
+
+class TestGetConsumedColumns:
+    def test_where_clause_columns(self):
+        cols = get_consumed_columns("SELECT id FROM {prev} WHERE name = 'test'")
+        assert "name" in cols
+        assert "id" in cols
+
+    def test_all_references(self):
+        cols = get_consumed_columns("SELECT id, UPPER(name) AS uname FROM {prev} WHERE age > 0")
+        assert "id" in cols
+        assert "name" in cols
+        assert "age" in cols
+
+
+class TestPruneColumns:
+    def test_removes_unused_columns(self):
+        result = prune_columns("SELECT id, name, age FROM {prev}", {"id", "name"})
+        assert "id" in result
+        assert "name" in result
+        assert "age" not in result
+
+    def test_preserves_needed_columns(self):
+        result = prune_columns("SELECT id, name FROM {prev}", {"id", "name"})
+        assert "id" in result
+        assert "name" in result
+
+    def test_no_prune_on_select_star(self):
+        original = "SELECT * FROM {prev}"
+        result = prune_columns(original, {"id"})
+        # SELECT * can't be pruned without schema info
+        assert "*" in result
+
+    def test_no_prune_with_wildcard_needed(self):
+        original = "SELECT id, name FROM {prev}"
+        result = prune_columns(original, {"*"})
+        assert "id" in result
+        assert "name" in result
+
+    def test_no_empty_select(self):
+        # If pruning would remove all columns, keep them
+        result = prune_columns("SELECT id, name FROM {prev}", {"other"})
+        assert "SELECT" in result
+
+
+class TestOptimizeSql:
+    def test_basic_optimization(self):
+        result = optimize_sql("SELECT * FROM {prev} WHERE 1 = 1")
+        assert "SELECT" in result
+
+    def test_fallback_on_failure(self):
+        result = optimize_sql("")
+        assert result == ""

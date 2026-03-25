@@ -35,6 +35,7 @@ from vonnegut.pipeline.schema.types import Schema
 @dataclass
 class TestResult:
     node_results: list[NodeValidationResult] = field(default_factory=list)
+    node_schemas: dict[str, Schema] = field(default_factory=dict)
 
     @property
     def success(self) -> bool:
@@ -137,7 +138,7 @@ class PipelineOrchestrator:
                     if schema is not None:
                         node_schemas[node_id] = schema
 
-        return TestResult(node_results=results)
+        return TestResult(node_results=results, node_schemas=node_schemas)
 
     async def run_execute(
         self,
