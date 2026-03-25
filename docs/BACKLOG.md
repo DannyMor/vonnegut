@@ -1,0 +1,112 @@
+# Vonnegut Backlog
+
+Living document tracking planned work, completed items, and priorities.
+Updated as work progresses.
+
+---
+
+## Completed
+
+### Infrastructure & Foundation
+- [x] Backend project setup (FastAPI, SQLite, psycopg3, uv)
+- [x] Frontend project setup (React, TypeScript, Vite, shadcn/ui, React Flow)
+- [x] Database layer with SQLite (aiosqlite)
+- [x] Encryption for connection secrets (Fernet)
+- [x] Connection CRUD with encrypted config storage
+- [x] Explorer — list databases, tables, schemas, sample data
+- [x] Migration CRUD — create, update, delete, list
+- [x] Pipeline steps CRUD — add, update, delete with position management
+- [x] Transformations CRUD — add, update, delete, reorder
+- [x] Adapter pattern — DatabaseAdapter ABC with Postgres direct, kubectl exec, in-memory implementations
+- [x] AI integration — Claude-powered code/SQL generation for pipeline steps
+
+### Pipeline Validation Framework
+- [x] DAG model — nodes dict + edges list, topological sort (Kahn's), cycle detection
+- [x] Canonical schema types — DataType enum, Column, Schema with adapters (Arrow, Polars, Postgres)
+- [x] Node executors — SourceExecutor, SqlExecutor, CodeExecutor, TargetExecutor (stateless, Arrow-based)
+- [x] Validation rules — SyntaxCheckRule, ColumnNameRule, SqlParseRule
+- [x] Node validator — pre/post execution rule composition
+- [x] Pipeline validator — SchemaCompatibilityRule for cross-edge checks
+- [x] Orchestrator — DAG walk with per-node validation
+- [x] Graph builder — converts migration + steps to PipelineGraph
+- [x] PipelineRunner — bridges new framework to existing SSE/API contract
+- [x] Control plane — pipeline hashing (SHA-256), state management, PipelineManager
+- [x] SSE Reporter — bridges Reporter interface to async callbacks
+- [x] Old PipelineEngine removed (replaced by PipelineRunner)
+
+### Storage Layer Refactor
+- [x] AppDatabase protocol — abstract interface for metadata DB
+- [x] SqliteDatabase — renamed concrete implementation
+- [x] Repository pattern — ConnectionRepository, MigrationRepository, PipelineStepRepository, TransformationRepository
+- [x] Routers are SQL-free — all raw SQL moved to repositories
+- [x] ConnectionManager refactored to use ConnectionRepository
+- [x] Transaction support (context manager on SqliteDatabase)
+
+### Test Suite
+- [x] 226 tests, all green
+- [x] Fixed InMemoryAdapter quoted identifier handling
+- [x] Repository unit tests (18 tests)
+- [x] Pipeline framework tests (82 tests)
+- [x] API integration tests
+- [x] Adapter tests (direct, exec, memory)
+
+---
+
+## In Progress
+
+(nothing currently)
+
+---
+
+## Up Next — Prioritized
+
+### P0 — Core Functionality Gaps
+
+- [ ] **Persist pipeline metadata to DB** — inferred schemas, validation status, validated_hash are currently in-memory only. Need NodeSchemaRepository + migration table updates. Without this, validation state is lost on server restart.
+
+- [ ] **Wire PipelineManager into API endpoints** — currently PipelineRunner is called directly from routers. The PipelineManager (with hash-based validation gating) exists but isn't wired to the API. This would enforce validate-before-run.
+
+### P1 — Validation & Safety
+
+- [ ] **Source validation rules** — ConnectionRule (can we connect?), QueryExecutionRule (does the source query run?)
+- [ ] **Target validation rules** — ConnectionRule, SchemaAvailabilityRule (does target table exist?)
+- [ ] **Execution-based validation rules** — SqlExecutionRule (does SQL run against sample data?), ExecutionCheckRule for code nodes
+- [ ] **SchemaStabilityRule** — run code transform multiple times with varied input to detect unstable output schemas
+
+### P2 — Optimizer
+
+- [ ] **MergeSqlNodesRule** — merge consecutive SQL nodes into a single CTE chain (uses sqlglot)
+- [ ] **NoOpRemovalRule** — remove `SELECT * FROM {prev}` passthrough nodes
+- [ ] **PredicatePushdownRule** — push SQL filters closer to source
+- [ ] **ColumnPruningRule** — remove unused columns early
+
+### P3 — Storage & Multi-DB
+
+- [ ] **PostgresDatabase implementation** — implement AppDatabase protocol for Postgres, enabling Postgres as the metadata store
+- [ ] **DuckDBSchemaAdapter** — schema adapter for DuckDB column types
+
+### P4 — Frontend Improvements
+
+- [ ] **Richer validation display** — show structured validation results (per-rule pass/fail) in the pipeline builder UI
+- [ ] **Better error messages** — surface validation rule details (not just generic error strings)
+- [ ] **Pipeline status indicators** — show DRAFT/VALID/INVALID status in the UI
+
+### P5 — Cleanup & Quality
+
+- [ ] **Remove TransformationEngine + MigrationRunner** — these are legacy (pre-pipeline framework). The old `/run` endpoint still uses them. Once run-stream fully replaces run, they can go.
+- [ ] **Code execution safety** — restricted builtins, timeout protection, no network access in CodeExecutor sandbox
+- [ ] **LogReporter** — writes pipeline events to Python logger (useful for debugging)
+
+---
+
+## Future / Deferred
+
+- Multi-input nodes (joins, unions) — DAG model already supports this
+- Cost-based optimizer (table statistics)
+- Parallel execution of independent DAG branches
+- Caching intermediate results
+- Incremental pipelines (process only changed data)
+- Scheduling system
+- Extended observability (OpenTelemetry)
+- Multi-user support with authentication
+- Target write transaction safety (truncate + insert in one transaction)
