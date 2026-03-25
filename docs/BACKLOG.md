@@ -59,7 +59,7 @@ Updated as work progresses.
 - [x] Schema-aware optimization — validated schemas flow from TestResult → PipelineManager → OptimizationContext → rules
 
 ### Test Suite
-- [x] 348 tests, all green
+- [x] 381 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
 - [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
@@ -104,14 +104,14 @@ Updated as work progresses.
 
 ### P4 — Cleanup & Quality
 
-- [ ] **Remove TransformationEngine + MigrationRunner** — these are legacy (pre-pipeline framework). The old `/run` endpoint still uses them. Once run-stream fully replaces run, they can go.
-- [ ] **Code execution safety** — restricted builtins, timeout protection, no network access in CodeExecutor sandbox
-- [ ] **LogReporter** — writes pipeline events to Python logger (useful for debugging)
+- [x] **Remove TransformationEngine + MigrationRunner** — these are legacy (pre-pipeline framework). The old `/run` endpoint still uses them. Once run-stream fully replaces run, they can go. Done in PR #22.
+- [x] **Code execution safety** — restricted builtins, timeout protection, no network access in CodeExecutor sandbox. Done in PR #23.
+- [x] **LogReporter** — writes pipeline events to Python logger (useful for debugging). Done in PR #24.
 
 ### P5 — Storage & Multi-DB
 
-- [ ] **PostgresDatabase implementation** — implement AppDatabase protocol for Postgres, enabling Postgres as the metadata store
-- [ ] **DuckDBSchemaAdapter** — schema adapter for DuckDB column types
+- [x] **PostgresDatabase implementation** — implement AppDatabase protocol for Postgres, enabling Postgres as the metadata store. Done in PR #25.
+- [x] **DuckDBSchemaAdapter** — schema adapter for DuckDB column types. Done in PR #26.
 
 ---
 
