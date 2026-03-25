@@ -8,6 +8,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.7.0",
     "psycopg[binary]>=3.3.3",
+    "psycopg-pool>=3.2.0",
     "aiosqlite>=0.22.1",
     "cryptography>=46.0.5",
     "anthropic>=0.85.0",
