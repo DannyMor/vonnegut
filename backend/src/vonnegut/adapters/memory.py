@@ -42,32 +42,35 @@ class InMemoryAdapter(DatabaseAdapter):
     async def execute(self, query: str, params: tuple = ()) -> list[dict[str, Any]]:
         q = query.strip().upper()
 
-        count_match = re.match(r"SELECT\s+COUNT\(\*\)\s+AS\s+\w+\s+FROM\s+(\w+)", q)
+        # Matches both bare identifiers (users) and quoted ("users", "USERS")
+        _IDENT = r'"?(\w+)"?'
+
+        count_match = re.match(rf"SELECT\s+COUNT\(\*\)\s+AS\s+\w+\s+FROM\s+{_IDENT}", q)
         if count_match:
             table = count_match.group(1).lower()
             table_key = self._find_table(table)
             return [{"count": len(self._tables[table_key]["rows"])}]
 
-        select_match = re.match(r"SELECT\s+\*\s+FROM\s+(\w+)", q)
+        select_match = re.match(rf"SELECT\s+\*\s+FROM\s+{_IDENT}", q)
         if select_match:
             table = select_match.group(1).lower()
             table_key = self._find_table(table)
             return list(self._tables[table_key]["rows"])
 
-        truncate_match = re.match(r"TRUNCATE\s+TABLE\s+(\w+)", q)
+        truncate_match = re.match(rf"TRUNCATE\s+TABLE\s+{_IDENT}", q)
         if truncate_match:
             table = truncate_match.group(1).lower()
             table_key = self._find_table(table)
             self._tables[table_key]["rows"] = []
             return []
 
-        insert_match = re.match(r"INSERT\s+INTO\s+(\w+)\s*(?:\(([^)]+)\))?", q)
+        insert_match = re.match(rf"INSERT\s+INTO\s+{_IDENT}\s*(?:\(([^)]+)\))?", q)
         if insert_match and "INSERT" in q:
             table = insert_match.group(1).lower()
             table_key = self._find_table(table)
             col_str = insert_match.group(2)
             if col_str:
-                columns = [c.strip().lower() for c in col_str.split(",")]
+                columns = [c.strip().strip('"').lower() for c in col_str.split(",")]
             else:
                 schema = self._tables[table_key]["schema"]
                 columns = [col.name for col in schema]
