@@ -51,7 +51,7 @@ Updated as work progresses.
 - [x] 5 metadata repository tests
 
 ### Test Suite
-- [x] 235 tests, all green
+- [x] 246 tests, all green
 - [x] Fixed InMemoryAdapter quoted identifier handling
 - [x] Repository unit tests (23 tests)
 - [x] Pipeline framework tests (82 tests)
@@ -78,8 +78,8 @@ Updated as work progresses.
 
 - [ ] **Source validation rules** — ConnectionRule (can we connect?), QueryExecutionRule (does the source query run?)
 - [ ] **Target validation rules** — ConnectionRule, SchemaAvailabilityRule (does target table exist?)
-- [ ] **Execution-based validation rules** — SqlExecutionRule (does SQL run against sample data?), ExecutionCheckRule for code nodes
-- [ ] **SchemaStabilityRule** — run code transform multiple times with varied input to detect unstable output schemas
+- [x] **Execution-based validation rules** — SqlExecutionRule, CodeExecutionRule, SchemaStabilityRule. Done in PR #15.
+- [x] **SchemaStabilityRule** — re-runs code transforms on data subsets to detect unstable schemas. Done in PR #15.
 
 ### P2 — Optimizer
 
