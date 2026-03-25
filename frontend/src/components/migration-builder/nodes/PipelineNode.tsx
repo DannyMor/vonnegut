@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { X } from "lucide-react";
+import { X, CheckCircle2, XCircle } from "lucide-react";
 import { icons } from "@/config/iconRegistry";
 import { nodeTheme, type NodeType } from "@/config/nodeTheme";
 import type { StepType } from "@/types/pipeline";
@@ -9,6 +9,7 @@ export interface PipelineNodeData {
   stepType: StepType;
   description: string | null;
   schemaCount: number | null;
+  validationStatus: "ok" | "error" | null;
   onDelete: (nodeId: string) => void;
   [key: string]: unknown;
 }
@@ -29,6 +30,8 @@ export function PipelineNode({ id, data, selected }: NodeProps<PipelineNodeType>
       <div className="flex items-center gap-2">
         <Icon className={`h-4 w-4 shrink-0 ${theme.accent}`} />
         <span className="font-medium text-sm truncate">{d.name}</span>
+        {d.validationStatus === "ok" && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />}
+        {d.validationStatus === "error" && <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600" />}
         <button
           onClick={(e) => { e.stopPropagation(); d.onDelete(id); }}
           className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 h-4 w-4 rounded hover:bg-destructive/20 flex items-center justify-center"

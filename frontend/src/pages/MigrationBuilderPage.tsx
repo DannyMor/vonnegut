@@ -5,10 +5,10 @@ import { Canvas } from "@/components/migration-builder/Canvas";
 import { EditorPanel } from "@/components/migration-builder/EditorPanel";
 import { RunLog, type LogEntry } from "@/components/migration-builder/RunLog";
 import { Button } from "@/components/ui/button";
-import { Play, FlaskConical, Save, Loader2, PanelBottomOpen, PanelBottomClose } from "lucide-react";
+import { Play, FlaskConical, Save, Loader2, PanelBottomOpen, PanelBottomClose, CircleCheck, CircleX, Pencil } from "lucide-react";
 import type { Migration } from "@/types/migration";
 import type { Connection } from "@/types/connection";
-import type { StepType, PipelineStep, PipelineTestResult, ColumnDef } from "@/types/pipeline";
+import type { StepType, PipelineStep, PipelineTestResult, ColumnDef, ValidationStatus } from "@/types/pipeline";
 
 type BottomTab = "editor" | "run";
 
@@ -41,13 +41,23 @@ export function MigrationBuilderPage() {
   const [bottomTab, setBottomTab] = useState<BottomTab>("editor");
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [testStartedAt, setTestStartedAt] = useState<number | null>(null);
+  const [validationStatus, setValidationStatus] = useState<ValidationStatus>("DRAFT");
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const lastNodeIdRef = useRef<string>("source");
+
+  const loadValidation = useCallback(async () => {
+    if (!id || isNew) return;
+    try {
+      const result = await api.migrations.validation(id);
+      setValidationStatus(result.validation_status as ValidationStatus);
+    } catch { /* ignore — endpoint may not exist for new migrations */ }
+  }, [id, isNew]);
 
   const load = useCallback(async () => {
     if (!id || isNew) return;
     setMigration(await api.migrations.get(id));
-  }, [id, isNew]);
+    loadValidation();
+  }, [id, isNew, loadValidation]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { api.connections.list().then(setConnections).catch(() => {}); }, []);
@@ -154,6 +164,7 @@ export function MigrationBuilderPage() {
     const startTime = Date.now();
     setTestStartedAt(startTime);
     setLogEntries([{ type: "info", message: `Starting test for \`${migration.name.trim()}\`...`, timestamp: now }]);
+    setValidationStatus("VALIDATING");
     let hadErrors = false;
     abortRef.current = api.migrations.testStream(id, (event) => {
       const entry = event as unknown as LogEntry;
@@ -167,6 +178,7 @@ export function MigrationBuilderPage() {
         const dur = totalMs < 1000 ? `${totalMs}ms` : `${(totalMs / 1000).toFixed(2)}s`;
         const message = hadErrors ? `Test failed in ${dur}` : `Test passed in ${dur}`;
         setLogEntries((prev) => [...prev, { type: "info", message, timestamp: new Date().toISOString() }]);
+        loadValidation();
         return;
       }
       if (entry.type === "result") {
@@ -257,6 +269,7 @@ export function MigrationBuilderPage() {
       steps.forEach((s, i) => { s.position = i; });
       return { ...prev, pipeline_steps: steps };
     });
+    setValidationStatus("DRAFT");
   }, []);
 
   const handleDeleteStep = useCallback((stepId: string) => {
@@ -266,6 +279,7 @@ export function MigrationBuilderPage() {
       steps.forEach((s, i) => { s.position = i; });
       return { ...prev, pipeline_steps: steps };
     });
+    setValidationStatus("DRAFT");
     setSelectedNodeId((cur) => cur === stepId ? null : cur);
     if (lastNodeIdRef.current === stepId) lastNodeIdRef.current = "source";
   }, []);
@@ -295,6 +309,7 @@ export function MigrationBuilderPage() {
       });
       return { ...prev, pipeline_steps: steps };
     });
+    if ("config" in updates) setValidationStatus("DRAFT");
   }, []);
 
   // Derived state
@@ -348,6 +363,20 @@ export function MigrationBuilderPage() {
           onChange={(e) => handleUpdateMigration({ name: e.target.value })}
           onBlur={(e) => { const v = e.target.value.trim(); if (v !== e.target.value) handleUpdateMigration({ name: v || "Untitled Migration" }); }}
         />
+        {!isNew && (
+          <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+            validationStatus === "VALID" ? "bg-green-500/15 text-green-600" :
+            validationStatus === "INVALID" ? "bg-red-500/15 text-red-600" :
+            validationStatus === "VALIDATING" ? "bg-blue-500/15 text-blue-600" :
+            "bg-muted text-muted-foreground"
+          }`}>
+            {validationStatus === "VALID" && <CircleCheck className="h-3 w-3" />}
+            {validationStatus === "INVALID" && <CircleX className="h-3 w-3" />}
+            {validationStatus === "VALIDATING" && <Loader2 className="h-3 w-3 animate-spin" />}
+            {validationStatus === "DRAFT" && <Pencil className="h-3 w-3" />}
+            {validationStatus}
+          </span>
+        )}
         <div className="flex-1" />
         <Button variant="outline" size="sm" onClick={handleSave} disabled={saving || testing || running}>
           {saving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}

@@ -136,6 +136,7 @@ class PipelineRunner:
                         await on_progress({
                             "type": "step_error", "node_id": node_id,
                             "name": name, "duration_ms": 0, "error": msg,
+                            "validation_errors": errors,
                         })
                 continue
 
@@ -190,6 +191,7 @@ class PipelineRunner:
                         "type": "step_error", "node_id": node_id,
                         "name": name, "duration_ms": duration_ms,
                         "error": str(e),
+                        "validation_errors": [{"type": "execution_error", "message": str(e)}],
                     })
 
                 pipeline_failed = True
