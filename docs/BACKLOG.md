@@ -14,7 +14,7 @@ Updated as work progresses.
 - [x] Encryption for connection secrets (Fernet)
 - [x] Connection CRUD with encrypted config storage
 - [x] Explorer — list databases, tables, schemas, sample data
-- [x] Migration CRUD — create, update, delete, list
+- [x] Pipeline CRUD — create, update, delete, list
 - [x] Pipeline steps CRUD — add, update, delete with position management
 - [x] Transformations CRUD — add, update, delete, reorder
 - [x] Adapter pattern — DatabaseAdapter ABC with Postgres direct, kubectl exec, in-memory implementations
@@ -28,7 +28,7 @@ Updated as work progresses.
 - [x] Node validator — pre/post execution rule composition
 - [x] Pipeline validator — SchemaCompatibilityRule for cross-edge checks
 - [x] Orchestrator — DAG walk with per-node validation
-- [x] Graph builder — converts migration + steps to PipelineGraph
+- [x] Graph builder — converts pipeline + steps to PipelineGraph
 - [x] PipelineRunner — bridges new framework to existing SSE/API contract
 - [x] Control plane — pipeline hashing (SHA-256), state management, PipelineManager
 - [x] SSE Reporter — bridges Reporter interface to async callbacks
@@ -37,7 +37,7 @@ Updated as work progresses.
 ### Storage Layer Refactor
 - [x] AppDatabase protocol — abstract interface for metadata DB
 - [x] SqliteDatabase — renamed concrete implementation
-- [x] Repository pattern — ConnectionRepository, MigrationRepository, PipelineStepRepository, TransformationRepository
+- [x] Repository pattern — ConnectionRepository, PipelineRepository, PipelineStepRepository, TransformationRepository
 - [x] Routers are SQL-free — all raw SQL moved to repositories
 - [x] ConnectionManager refactored to use ConnectionRepository
 - [x] Transaction support (context manager on SqliteDatabase)
@@ -47,7 +47,7 @@ Updated as work progresses.
 - [x] PipelineMetadataRepository — get_or_create, update_validation, reset_to_draft
 - [x] PipelineRunner persists validation results after test runs
 - [x] Auto-invalidation — step CRUD resets metadata to DRAFT
-- [x] GET /migrations/{mig_id}/validation endpoint
+- [x] GET /pipelines/{pipeline_id}/validation endpoint
 - [x] 5 metadata repository tests
 
 ### sqlglot SQL Analysis (P2 refactor)
@@ -112,6 +112,11 @@ Updated as work progresses.
 
 - [x] **PostgresDatabase implementation** — implement AppDatabase protocol for Postgres, enabling Postgres as the metadata store. Done in PR #25.
 - [x] **DuckDBSchemaAdapter** — schema adapter for DuckDB column types. Done in PR #26.
+
+### P6 — Naming & Terminology Alignment
+
+- [x] **Dirty-state save guard** — only save before run when pipeline has been modified, preventing unnecessary validation reset. Done in PR #27.
+- [x] **Full migration→pipeline rename** — renamed all models, repos, routers, API routes, frontend types, components, pages, DB tables/columns across 49 files. Done in PR #28.
 
 ---
 
