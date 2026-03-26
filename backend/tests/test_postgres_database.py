@@ -34,7 +34,7 @@ class TestPgSchemaStatements:
     def test_all_tables_present(self):
         from vonnegut.database import _PG_SCHEMA_STATEMENTS
         all_sql = " ".join(_PG_SCHEMA_STATEMENTS)
-        for table in ["connections", "migrations", "pipeline_steps", "transformations", "pipeline_metadata"]:
+        for table in ["connections", "pipelines", "pipeline_steps", "transformations", "pipeline_metadata"]:
             assert table in all_sql
 
     def test_statement_count(self):

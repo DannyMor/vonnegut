@@ -6,7 +6,7 @@ import { TargetEditor } from "./editors/TargetEditor";
 import { SqlEditor } from "./editors/SqlEditor";
 import { CodeEditor } from "./editors/CodeEditor";
 import { AiEditor } from "./editors/AiEditor";
-import type { Migration } from "@/types/migration";
+import type { Pipeline } from "@/types/pipeline-definition";
 import type { PipelineStep, ColumnDef } from "@/types/pipeline";
 import type { Connection } from "@/types/connection";
 
@@ -47,20 +47,20 @@ function EditableLabel({ value, fallback, onChange, className }: {
 
 interface Props {
   nodeId: string;
-  migration: Migration;
+  pipeline: Pipeline;
   connections: Connection[];
   step: PipelineStep | null;
   inputSchema: ColumnDef[];
   outputSchema: ColumnDef[];
   onClose: () => void;
-  onUpdateMigration: (updates: Partial<Migration>) => void;
+  onUpdatePipeline: (updates: Partial<Pipeline>) => void;
   onUpdateStep: (stepId: string, updates: Record<string, unknown>) => void;
 }
 
 export function EditorPanel({
-  nodeId, migration, connections, step,
+  nodeId, pipeline, connections, step,
   inputSchema, outputSchema,
-  onClose, onUpdateMigration, onUpdateStep,
+  onClose, onUpdatePipeline, onUpdateStep,
 }: Props) {
   const isSource = nodeId === "source";
   const isTarget = nodeId === "target";
@@ -91,18 +91,18 @@ export function EditorPanel({
           <>
             <EditableLabel
               className="font-medium text-sm bg-transparent border-none outline-none"
-              value={isSource ? (migration.source_label || "") : (migration.target_label || "")}
+              value={isSource ? (pipeline.source_label || "") : (pipeline.target_label || "")}
               fallback={isSource ? "Source" : "Target"}
-              onChange={(v) => onUpdateMigration(isSource ? { source_label: v || undefined } : { target_label: v || undefined })}
+              onChange={(v) => onUpdatePipeline(isSource ? { source_label: v || undefined } : { target_label: v || undefined })}
             />
             <input
               className="text-xs text-muted-foreground bg-transparent border-none outline-none flex-1"
-              value={(isSource ? migration.source_description : migration.target_description) || ""}
+              value={(isSource ? pipeline.source_description : pipeline.target_description) || ""}
               placeholder="Add description..."
-              onChange={(e) => onUpdateMigration(
+              onChange={(e) => onUpdatePipeline(
                 isSource ? { source_description: e.target.value || undefined } : { target_description: e.target.value || undefined }
               )}
-              onBlur={(e) => { const v = e.target.value.trim() || undefined; onUpdateMigration(isSource ? { source_description: v } : { target_description: v }); }}
+              onBlur={(e) => { const v = e.target.value.trim() || undefined; onUpdatePipeline(isSource ? { source_description: v } : { target_description: v }); }}
             />
           </>
         )}
@@ -120,16 +120,16 @@ export function EditorPanel({
         <div className="flex-1 overflow-auto p-4">
           {isSource && (
             <SourceEditor
-              migration={migration}
+              pipeline={pipeline}
               connections={connections}
-              onUpdate={onUpdateMigration}
+              onUpdate={onUpdatePipeline}
             />
           )}
           {isTarget && (
             <TargetEditor
-              migration={migration}
+              pipeline={pipeline}
               connections={connections}
-              onUpdate={onUpdateMigration}
+              onUpdate={onUpdatePipeline}
             />
           )}
           {step?.step_type === "sql" && (

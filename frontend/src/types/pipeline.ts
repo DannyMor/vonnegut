@@ -7,7 +7,7 @@ export interface ColumnDef {
 
 export interface PipelineStep {
   id: string;
-  migration_id: string;
+  pipeline_id: string;
   name: string;
   description: string | null;
   position: number;

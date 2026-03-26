@@ -16,11 +16,11 @@ interface CardInfo {
 export function HomePage() {
   const navigate = useNavigate();
   const [connectionCount, setConnectionCount] = useState<number | null>(null);
-  const [migrationCount, setMigrationCount] = useState<number | null>(null);
+  const [pipelineCount, setPipelineCount] = useState<number | null>(null);
 
   useEffect(() => {
     api.connections.list().then((list) => setConnectionCount(list.length)).catch(() => {});
-    api.migrations.list().then((list) => setMigrationCount(list.length)).catch(() => {});
+    api.pipelines.list().then((list) => setPipelineCount(list.length)).catch(() => {});
   }, []);
 
   const cards: CardInfo[] = [
@@ -41,12 +41,12 @@ export function HomePage() {
       countLabel: "",
     },
     {
-      label: "Migrations",
-      description: "Build and run pipelines",
-      icon: icons.nav_migrations,
-      to: "/migrations",
-      count: migrationCount,
-      countLabel: "migrations",
+      label: "Pipelines",
+      description: "Build and run data pipelines",
+      icon: icons.nav_pipelines,
+      to: "/pipelines",
+      count: pipelineCount,
+      countLabel: "pipelines",
     },
   ];
 

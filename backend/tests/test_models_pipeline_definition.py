@@ -1,46 +1,46 @@
 import pytest
 from pydantic import ValidationError
 
-from vonnegut.models.migration import MigrationCreate, MigrationResponse, MigrationStatusType
+from vonnegut.models.pipeline_definition import PipelineCreate, PipelineResponse, PipelineStatusType
 
 
-def test_migration_status_type_accepts_valid():
-    m = MigrationResponse(
+def test_pipeline_status_type_accepts_valid():
+    p = PipelineResponse(
         id="x", name="x", source_connection_id="x", target_connection_id="x",
         source_table="x", target_table="x", status="cancelled", truncate_target=False,
         rows_processed=None, total_rows=None, error_message=None,
         created_at="2026-01-01T00:00:00", updated_at="2026-01-01T00:00:00",
     )
-    assert m.status == "cancelled"
+    assert p.status == "cancelled"
 
 
-def test_migration_create():
-    m = MigrationCreate(
-        name="Test Migration",
+def test_pipeline_create():
+    p = PipelineCreate(
+        name="Test Pipeline",
         source_connection_id="conn-1",
         target_connection_id="conn-2",
         source_table="users",
         target_table="users_copy",
     )
-    assert m.name == "Test Migration"
-    assert m.truncate_target is False
+    assert p.name == "Test Pipeline"
+    assert p.truncate_target is False
 
 
-def test_migration_create_with_truncate():
-    m = MigrationCreate(
-        name="Truncate Migration",
+def test_pipeline_create_with_truncate():
+    p = PipelineCreate(
+        name="Truncate Pipeline",
         source_connection_id="conn-1",
         target_connection_id="conn-2",
         source_table="users",
         target_table="users_copy",
         truncate_target=True,
     )
-    assert m.truncate_target is True
+    assert p.truncate_target is True
 
 
-def test_migration_response():
-    m = MigrationResponse(
-        id="mig-1",
+def test_pipeline_response():
+    p = PipelineResponse(
+        id="pipeline-1",
         name="Test",
         source_connection_id="conn-1",
         target_connection_id="conn-2",
@@ -55,5 +55,5 @@ def test_migration_response():
         updated_at="2026-01-01T00:00:00",
         transformations=[],
     )
-    assert m.status == "draft"
-    assert m.transformations == []
+    assert p.status == "draft"
+    assert p.transformations == []

@@ -21,7 +21,7 @@ from vonnegut.pipeline.engine.executor.sql_executor import SqlExecutor
 from vonnegut.pipeline.engine.executor.target_executor import TargetExecutor
 from vonnegut.pipeline.engine.executor.base import NodeExecutor
 from vonnegut.pipeline.control_plane.hashing import compute_pipeline_hash
-from vonnegut.pipeline.graph_builder import build_graph_from_migration
+from vonnegut.pipeline.graph_builder import build_graph_from_pipeline
 
 ProgressCallback = Callable[[dict], Awaitable[None]] | None
 
@@ -75,15 +75,15 @@ class PipelineRunner:
         target_schema: list[ColumnSchema] | None = None,
         on_progress: ProgressCallback = None,
         metadata_repo=None,
-        migration_id: str | None = None,
+        pipeline_id: str | None = None,
     ) -> dict:
         """Run pipeline test, returning PipelineTestResult-shaped dict.
 
-        If metadata_repo and migration_id are provided, persists validation
+        If metadata_repo and pipeline_id are provided, persists validation
         state (schemas, hash, status) after the test completes.
         """
-        mig = self._build_migration_dict(source_query, steps)
-        graph = build_graph_from_migration(mig, steps)
+        pipeline = self._build_pipeline_dict(source_query, steps)
+        graph = build_graph_from_pipeline(pipeline, steps)
         node_names = _build_node_names(graph, steps)
         connection_info = {"adapter": source_adapter, "limit": limit}
 
@@ -198,7 +198,7 @@ class PipelineRunner:
                 break
 
         # Persist validation metadata if repo is available
-        if metadata_repo is not None and migration_id is not None:
+        if metadata_repo is not None and pipeline_id is not None:
             node_schemas = {}
             for step in results:
                 if step["status"] == "ok" and step.get("schema"):
@@ -206,7 +206,7 @@ class PipelineRunner:
 
             if pipeline_failed:
                 await metadata_repo.update_validation(
-                    migration_id, "INVALID", validated_hash=None, node_schemas=node_schemas,
+                    pipeline_id, "INVALID", validated_hash=None, node_schemas=node_schemas,
                 )
             else:
                 pipeline_hash = compute_pipeline_hash(
@@ -214,7 +214,7 @@ class PipelineRunner:
                     graph.edges,
                 )
                 await metadata_repo.update_validation(
-                    migration_id, "VALID", validated_hash=pipeline_hash, node_schemas=node_schemas,
+                    pipeline_id, "VALID", validated_hash=pipeline_hash, node_schemas=node_schemas,
                 )
 
         return {"steps": results}
@@ -266,10 +266,10 @@ class PipelineRunner:
             "validation": {"valid": len(errors) == 0, "errors": errors},
         }
 
-    def _build_migration_dict(
+    def _build_pipeline_dict(
         self, source_query: str, steps: list[dict],
     ) -> dict:
-        """Build a minimal migration dict for graph_builder."""
+        """Build a minimal pipeline dict for graph_builder."""
         return {
             "source_connection_id": "_test",
             "source_table": "_source",

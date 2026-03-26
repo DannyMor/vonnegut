@@ -23,7 +23,7 @@ async def client(app):
         yield c
 
 
-async def _create_migration(client):
+async def _create_pipeline(client):
     src = await client.post("/api/v1/connections", json={
         "name": "Src",
         "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
@@ -32,18 +32,18 @@ async def _create_migration(client):
         "name": "Tgt",
         "config": {"type": "postgres_direct", "host": "h", "port": 5432, "database": "d", "user": "u", "password": "p"},
     })
-    mig = await client.post("/api/v1/migrations", json={
-        "name": "Mig", "source_connection_id": src.json()["id"],
+    pipeline = await client.post("/api/v1/pipelines", json={
+        "name": "Pipeline", "source_connection_id": src.json()["id"],
         "target_connection_id": tgt.json()["id"],
         "source_table": "t1", "target_table": "t2",
     })
-    return mig.json()["id"]
+    return pipeline.json()["id"]
 
 
 @pytest.mark.asyncio
 async def test_add_transformation(client):
-    mig_id = await _create_migration(client)
-    resp = await client.post(f"/api/v1/migrations/{mig_id}/transformations", json={
+    pipeline_id = await _create_pipeline(client)
+    resp = await client.post(f"/api/v1/pipelines/{pipeline_id}/transformations", json={
         "type": "sql_expression",
         "config": {"expression": "UPPER(name)", "output_column": "name_upper"},
     })
@@ -54,12 +54,12 @@ async def test_add_transformation(client):
 
 @pytest.mark.asyncio
 async def test_add_multiple_transformations_ordered(client):
-    mig_id = await _create_migration(client)
-    await client.post(f"/api/v1/migrations/{mig_id}/transformations", json={
+    pipeline_id = await _create_pipeline(client)
+    await client.post(f"/api/v1/pipelines/{pipeline_id}/transformations", json={
         "type": "column_mapping",
         "config": {"mappings": [{"source_col": "a", "target_col": "b", "drop": False}]},
     })
-    resp = await client.post(f"/api/v1/migrations/{mig_id}/transformations", json={
+    resp = await client.post(f"/api/v1/pipelines/{pipeline_id}/transformations", json={
         "type": "sql_expression",
         "config": {"expression": "UPPER(b)", "output_column": "b_upper"},
     })
@@ -68,13 +68,13 @@ async def test_add_multiple_transformations_ordered(client):
 
 @pytest.mark.asyncio
 async def test_update_transformation(client):
-    mig_id = await _create_migration(client)
-    create_resp = await client.post(f"/api/v1/migrations/{mig_id}/transformations", json={
+    pipeline_id = await _create_pipeline(client)
+    create_resp = await client.post(f"/api/v1/pipelines/{pipeline_id}/transformations", json={
         "type": "sql_expression",
         "config": {"expression": "UPPER(name)", "output_column": "name_upper"},
     })
     t_id = create_resp.json()["id"]
-    resp = await client.put(f"/api/v1/migrations/{mig_id}/transformations/{t_id}", json={
+    resp = await client.put(f"/api/v1/pipelines/{pipeline_id}/transformations/{t_id}", json={
         "config": {"expression": "LOWER(name)", "output_column": "name_lower"},
     })
     assert resp.status_code == 200
@@ -83,31 +83,31 @@ async def test_update_transformation(client):
 
 @pytest.mark.asyncio
 async def test_delete_transformation(client):
-    mig_id = await _create_migration(client)
-    create_resp = await client.post(f"/api/v1/migrations/{mig_id}/transformations", json={
+    pipeline_id = await _create_pipeline(client)
+    create_resp = await client.post(f"/api/v1/pipelines/{pipeline_id}/transformations", json={
         "type": "sql_expression",
         "config": {"expression": "UPPER(name)", "output_column": "x"},
     })
     t_id = create_resp.json()["id"]
-    resp = await client.delete(f"/api/v1/migrations/{mig_id}/transformations/{t_id}")
+    resp = await client.delete(f"/api/v1/pipelines/{pipeline_id}/transformations/{t_id}")
     assert resp.status_code == 204
 
 
 @pytest.mark.asyncio
 async def test_reorder_transformations(client):
-    mig_id = await _create_migration(client)
-    r1 = await client.post(f"/api/v1/migrations/{mig_id}/transformations", json={
+    pipeline_id = await _create_pipeline(client)
+    r1 = await client.post(f"/api/v1/pipelines/{pipeline_id}/transformations", json={
         "type": "sql_expression", "config": {"expression": "UPPER(a)", "output_column": "x"},
     })
-    r2 = await client.post(f"/api/v1/migrations/{mig_id}/transformations", json={
+    r2 = await client.post(f"/api/v1/pipelines/{pipeline_id}/transformations", json={
         "type": "sql_expression", "config": {"expression": "LOWER(b)", "output_column": "y"},
     })
     id1, id2 = r1.json()["id"], r2.json()["id"]
-    resp = await client.put(f"/api/v1/migrations/{mig_id}/transformations/reorder", json={
+    resp = await client.put(f"/api/v1/pipelines/{pipeline_id}/transformations/reorder", json={
         "order": [id2, id1],
     })
     assert resp.status_code == 200
-    mig = await client.get(f"/api/v1/migrations/{mig_id}")
-    transforms = mig.json()["transformations"]
+    pipeline = await client.get(f"/api/v1/pipelines/{pipeline_id}")
+    transforms = pipeline.json()["transformations"]
     assert transforms[0]["id"] == id2
     assert transforms[1]["id"] == id1

@@ -2,16 +2,16 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import type { Migration } from "@/types/migration";
+import type { Pipeline } from "@/types/pipeline-definition";
 import type { Connection, ColumnSchema } from "@/types/connection";
 
 interface Props {
-  migration: Migration;
+  pipeline: Pipeline;
   connections: Connection[];
-  onUpdate: (updates: Partial<Migration>) => void;
+  onUpdate: (updates: Partial<Pipeline>) => void;
 }
 
-export function TargetEditor({ migration, connections, onUpdate }: Props) {
+export function TargetEditor({ pipeline, connections, onUpdate }: Props) {
   const [tables, setTables] = useState<string[]>([]);
   const [schema, setSchema] = useState<ColumnSchema[]>([]);
   const [loading, setLoading] = useState(false);
@@ -29,14 +29,14 @@ export function TargetEditor({ migration, connections, onUpdate }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!migration.target_connection_id) return;
-    loadTables(migration.target_connection_id);
-  }, [migration.target_connection_id, loadTables]);
+    if (!pipeline.target_connection_id) return;
+    loadTables(pipeline.target_connection_id);
+  }, [pipeline.target_connection_id, loadTables]);
 
   useEffect(() => {
-    if (!migration.target_connection_id || !migration.target_table) return;
-    api.connections.schema(migration.target_connection_id, migration.target_table).then(setSchema).catch(() => {});
-  }, [migration.target_connection_id, migration.target_table]);
+    if (!pipeline.target_connection_id || !pipeline.target_table) return;
+    api.connections.schema(pipeline.target_connection_id, pipeline.target_table).then(setSchema).catch(() => {});
+  }, [pipeline.target_connection_id, pipeline.target_table]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -44,7 +44,7 @@ export function TargetEditor({ migration, connections, onUpdate }: Props) {
         <label className="text-xs font-medium text-muted-foreground block mb-1">Connection</label>
         <SearchableSelect
           options={connectionOptions}
-          value={migration.target_connection_id}
+          value={pipeline.target_connection_id}
           onChange={(v) => onUpdate({ target_connection_id: v, target_table: "" })}
           placeholder="Search connections..."
         />
@@ -53,10 +53,10 @@ export function TargetEditor({ migration, connections, onUpdate }: Props) {
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium text-muted-foreground">Table</label>
-          {migration.target_connection_id && (
+          {pipeline.target_connection_id && (
             <button
               type="button"
-              onClick={() => loadTables(migration.target_connection_id, true)}
+              onClick={() => loadTables(pipeline.target_connection_id, true)}
               disabled={loading}
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
             >
@@ -67,10 +67,10 @@ export function TargetEditor({ migration, connections, onUpdate }: Props) {
         </div>
         <SearchableSelect
           items={tables}
-          value={migration.target_table}
+          value={pipeline.target_table}
           onChange={(v) => onUpdate({ target_table: v })}
           placeholder="Search tables..."
-          disabled={!migration.target_connection_id}
+          disabled={!pipeline.target_connection_id}
           loading={loading}
         />
       </div>

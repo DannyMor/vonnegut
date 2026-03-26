@@ -1,19 +1,19 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
 import { api } from "@/lib/api";
-import { Canvas } from "@/components/migration-builder/Canvas";
-import { EditorPanel } from "@/components/migration-builder/EditorPanel";
-import { RunLog, type LogEntry } from "@/components/migration-builder/RunLog";
+import { Canvas } from "@/components/pipeline-builder/Canvas";
+import { EditorPanel } from "@/components/pipeline-builder/EditorPanel";
+import { RunLog, type LogEntry } from "@/components/pipeline-builder/RunLog";
 import { Button } from "@/components/ui/button";
 import { Play, FlaskConical, Save, Loader2, PanelBottomOpen, PanelBottomClose, CircleCheck, CircleX, Pencil } from "lucide-react";
-import type { Migration } from "@/types/migration";
+import type { Pipeline } from "@/types/pipeline-definition";
 import type { Connection } from "@/types/connection";
 import type { StepType, PipelineStep, PipelineTestResult, ColumnDef, ValidationStatus } from "@/types/pipeline";
 
 type BottomTab = "editor" | "run";
 
-const EMPTY_MIGRATION: Migration = {
-  id: "", name: "Untitled Migration",
+const EMPTY_PIPELINE: Pipeline = {
+  id: "", name: "Untitled Pipeline",
   source_connection_id: "", target_connection_id: "",
   source_table: "", target_table: "",
   source_query: "", source_schema: [],
@@ -24,12 +24,12 @@ const EMPTY_MIGRATION: Migration = {
 };
 
 
-export function MigrationBuilderPage() {
+export function PipelineBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isNew = id === "new";
 
-  const [migration, setMigration] = useState<Migration | null>(isNew ? { ...EMPTY_MIGRATION } : null);
+  const [pipeline, setPipeline] = useState<Pipeline | null>(isNew ? { ...EMPTY_PIPELINE } : null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<PipelineTestResult | null>(null);
@@ -49,14 +49,14 @@ export function MigrationBuilderPage() {
   const loadValidation = useCallback(async () => {
     if (!id || isNew) return;
     try {
-      const result = await api.migrations.validation(id);
+      const result = await api.pipelines.validation(id);
       setValidationStatus(result.validation_status as ValidationStatus);
-    } catch { /* ignore — endpoint may not exist for new migrations */ }
+    } catch { /* ignore — endpoint may not exist for new pipelines */ }
   }, [id, isNew]);
 
   const load = useCallback(async () => {
     if (!id || isNew) return;
-    setMigration(await api.migrations.get(id));
+    setPipeline(await api.pipelines.get(id));
     loadValidation();
   }, [id, isNew, loadValidation]);
 
@@ -64,24 +64,24 @@ export function MigrationBuilderPage() {
   useEffect(() => { api.connections.list().then(setConnections).catch(() => {}); }, []);
   useEffect(() => { return () => { abortRef.current?.abort(); }; }, []);
 
-  // --- Save: persist migration + sync steps ---
+  // --- Save: persist pipeline + sync steps ---
   const handleSave = async () => {
-    if (!migration) return;
+    if (!pipeline) return;
     setError(null);
     setSaving(true);
-    const steps = migration.pipeline_steps || [];
+    const steps = pipeline.pipeline_steps || [];
 
     try {
     if (isNew) {
-      const created = await api.migrations.create({
-        name: migration.name,
-        source_connection_id: migration.source_connection_id,
-        target_connection_id: migration.target_connection_id,
-        source_table: migration.source_table,
-        target_table: migration.target_table,
-        source_query: migration.source_query,
-        source_schema: migration.source_schema,
-        truncate_target: migration.truncate_target,
+      const created = await api.pipelines.create({
+        name: pipeline.name,
+        source_connection_id: pipeline.source_connection_id,
+        target_connection_id: pipeline.target_connection_id,
+        source_table: pipeline.source_table,
+        target_table: pipeline.target_table,
+        source_query: pipeline.source_query,
+        source_schema: pipeline.source_schema,
+        truncate_target: pipeline.truncate_target,
       });
       // Create all local steps on the backend
       for (const step of steps) {
@@ -91,19 +91,19 @@ export function MigrationBuilderPage() {
           config: step.config,
         });
       }
-      navigate(`/migrations/${created.id}`, { replace: true });
+      navigate(`/pipelines/${created.id}`, { replace: true });
     } else if (id) {
-      await api.migrations.update(id, {
-        name: migration.name,
-        source_table: migration.source_table,
-        target_table: migration.target_table,
-        source_query: migration.source_query,
-        source_schema: migration.source_schema,
-        truncate_target: migration.truncate_target,
+      await api.pipelines.update(id, {
+        name: pipeline.name,
+        source_table: pipeline.source_table,
+        target_table: pipeline.target_table,
+        source_query: pipeline.source_query,
+        source_schema: pipeline.source_schema,
+        truncate_target: pipeline.truncate_target,
       });
       // Sync steps: delete removed, create new, update existing
-      const serverMig = await api.migrations.get(id);
-      const serverStepIds = new Set((serverMig.pipeline_steps || []).map((s) => s.id));
+      const serverPipeline = await api.pipelines.get(id);
+      const serverStepIds = new Set((serverPipeline.pipeline_steps || []).map((s) => s.id));
       const localStepIds = new Set(steps.map((s) => s.id));
 
       // Delete steps that were removed locally
@@ -128,7 +128,7 @@ export function MigrationBuilderPage() {
       await load();
       // Remap selectedNodeId and lastNodeIdRef to new server ID at the same position
       if (selectedStepIdx >= 0) {
-        setMigration((cur) => {
+        setPipeline((cur) => {
           const newSteps = cur?.pipeline_steps || [];
           if (selectedStepIdx < newSteps.length) {
             const newId = newSteps[selectedStepIdx].id;
@@ -149,7 +149,7 @@ export function MigrationBuilderPage() {
   };
 
   const handleTest = async () => {
-    if (!id || isNew || !migration) return;
+    if (!id || isNew || !pipeline) return;
     setError(null);
     setTesting(true);
     setLogEntries([]);
@@ -165,10 +165,10 @@ export function MigrationBuilderPage() {
     const now = new Date().toISOString();
     const startTime = Date.now();
     setTestStartedAt(startTime);
-    setLogEntries([{ type: "info", message: `Starting test for \`${migration.name.trim()}\`...`, timestamp: now }]);
+    setLogEntries([{ type: "info", message: `Starting test for \`${pipeline.name.trim()}\`...`, timestamp: now }]);
     setValidationStatus("VALIDATING");
     let hadErrors = false;
-    abortRef.current = api.migrations.testStream(id, (event) => {
+    abortRef.current = api.pipelines.testStream(id, (event) => {
       const entry = event as unknown as LogEntry;
       if (entry.type === "step_error" || entry.type === "error") {
         hadErrors = true;
@@ -192,7 +192,7 @@ export function MigrationBuilderPage() {
   };
 
   const handleRun = async () => {
-    if (!id || isNew || !migration) return;
+    if (!id || isNew || !pipeline) return;
     setError(null);
     setRunning(true);
     setLogEntries([]);
@@ -210,9 +210,9 @@ export function MigrationBuilderPage() {
     const now = new Date().toISOString();
     const startTime = Date.now();
     setTestStartedAt(startTime);
-    setLogEntries([{ type: "info", message: `Starting run for \`${migration.name.trim()}\`...`, timestamp: now }]);
+    setLogEntries([{ type: "info", message: `Starting run for \`${pipeline.name.trim()}\`...`, timestamp: now }]);
     let hadErrors = false;
-    abortRef.current = api.migrations.runStream(id, (event) => {
+    abortRef.current = api.pipelines.runStream(id, (event) => {
       const entry = event as unknown as LogEntry;
       if (entry.type === "step_error" || entry.type === "error") {
         hadErrors = true;
@@ -236,7 +236,7 @@ export function MigrationBuilderPage() {
 
   // --- Local step management (no API calls) ---
   const handleAddStep = useCallback((type: StepType, afterNodeId: string) => {
-    setMigration((prev) => {
+    setPipeline((prev) => {
       if (!prev) return prev;
       const steps = [...(prev.pipeline_steps || [])];
       const stepCount = steps.length;
@@ -252,7 +252,7 @@ export function MigrationBuilderPage() {
       };
       const newStep: PipelineStep = {
         id: crypto.randomUUID(),
-        migration_id: prev.id,
+        pipeline_id: prev.id,
         name: defaultNames[type],
         description: null,
         position: 0,
@@ -278,7 +278,7 @@ export function MigrationBuilderPage() {
   }, []);
 
   const handleDeleteStep = useCallback((stepId: string) => {
-    setMigration((prev) => {
+    setPipeline((prev) => {
       if (!prev) return prev;
       const steps = (prev.pipeline_steps || []).filter((s) => s.id !== stepId);
       steps.forEach((s, i) => { s.position = i; });
@@ -290,8 +290,8 @@ export function MigrationBuilderPage() {
     if (lastNodeIdRef.current === stepId) lastNodeIdRef.current = "source";
   }, []);
 
-  const handleUpdateMigration = useCallback((updates: Partial<Migration>) => {
-    setMigration((prev) => {
+  const handleUpdatePipeline = useCallback((updates: Partial<Pipeline>) => {
+    setPipeline((prev) => {
       if (!prev) return prev;
       return { ...prev, ...updates };
     });
@@ -299,7 +299,7 @@ export function MigrationBuilderPage() {
   }, []);
 
   const handleUpdateStep = useCallback((stepId: string, updates: Record<string, unknown>) => {
-    setMigration((prev) => {
+    setPipeline((prev) => {
       if (!prev) return prev;
       const steps = (prev.pipeline_steps || []).map((s) => {
         if (s.id !== stepId) return s;
@@ -321,7 +321,7 @@ export function MigrationBuilderPage() {
   }, []);
 
   // Derived state
-  const steps = migration?.pipeline_steps || [];
+  const steps = pipeline?.pipeline_steps || [];
   const isStepSelected = selectedNodeId && selectedNodeId !== "source" && selectedNodeId !== "target";
   const selectedStep: PipelineStep | null = isStepSelected
     ? (steps.find((s) => s.id === selectedNodeId) || null)
@@ -340,26 +340,26 @@ export function MigrationBuilderPage() {
   const safeEditingNodeId = (isEditingStep && !editingStep) ? "source" : editingNodeId;
 
   const getInputSchema = (nodeId: string): ColumnDef[] => {
-    if (nodeId === "source" || !migration) return [];
+    if (nodeId === "source" || !pipeline) return [];
     if (nodeId === "target") {
-      if (steps.length === 0) return migration.source_schema || [];
+      if (steps.length === 0) return pipeline.source_schema || [];
       const lastResult = testResults?.steps?.find((r) => r.node_id === steps[steps.length - 1].id);
-      return lastResult?.schema || migration.source_schema || [];
+      return lastResult?.schema || pipeline.source_schema || [];
     }
     const stepIdx = steps.findIndex((s) => s.id === nodeId);
-    if (stepIdx === 0) return migration.source_schema || [];
+    if (stepIdx === 0) return pipeline.source_schema || [];
     const prevResult = testResults?.steps?.find((r) => r.node_id === steps[stepIdx - 1].id);
-    return prevResult?.schema || migration.source_schema || [];
+    return prevResult?.schema || pipeline.source_schema || [];
   };
 
   const getOutputSchema = (nodeId: string): ColumnDef[] => {
     if (nodeId === "target") return [];
-    if (nodeId === "source") return migration?.source_schema || [];
+    if (nodeId === "source") return pipeline?.source_schema || [];
     const stepResult = testResults?.steps?.find((r) => r.node_id === nodeId);
     return stepResult?.schema || [];
   };
 
-  if (!migration) return <div className="p-6">Loading...</div>;
+  if (!pipeline) return <div className="p-6">Loading...</div>;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -367,9 +367,9 @@ export function MigrationBuilderPage() {
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <input
           className="font-semibold mr-4 bg-transparent border-none outline-none"
-          value={migration.name}
-          onChange={(e) => handleUpdateMigration({ name: e.target.value })}
-          onBlur={(e) => { const v = e.target.value.trim(); if (v !== e.target.value) handleUpdateMigration({ name: v || "Untitled Migration" }); }}
+          value={pipeline.name}
+          onChange={(e) => handleUpdatePipeline({ name: e.target.value })}
+          onBlur={(e) => { const v = e.target.value.trim(); if (v !== e.target.value) handleUpdatePipeline({ name: v || "Untitled Pipeline" }); }}
         />
         {!isNew && (
           <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
@@ -415,7 +415,7 @@ export function MigrationBuilderPage() {
       {/* Graph */}
       <div className={panelOpen ? "h-[45%]" : "flex-1"}>
         <Canvas
-          migration={migration}
+          pipeline={pipeline}
           testResults={testResults?.steps || null}
           selectedNodeId={effectiveSelectedNodeId}
           panelOpen={panelOpen}
@@ -472,13 +472,13 @@ export function MigrationBuilderPage() {
             {bottomTab === "editor" && (
               <EditorPanel
                 nodeId={safeEditingNodeId}
-                migration={migration}
+                pipeline={pipeline}
                 connections={connections}
                 step={editingStep}
                 inputSchema={getInputSchema(safeEditingNodeId)}
                 outputSchema={getOutputSchema(safeEditingNodeId)}
                 onClose={() => setPanelOpen(false)}
-                onUpdateMigration={handleUpdateMigration}
+                onUpdatePipeline={handleUpdatePipeline}
                 onUpdateStep={handleUpdateStep}
               />
             )}

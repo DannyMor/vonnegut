@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS connections (
     updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS migrations (
+CREATE TABLE IF NOT EXISTS pipelines (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     source_connection_id TEXT NOT NULL REFERENCES connections(id),
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS migrations (
 
 CREATE TABLE IF NOT EXISTS pipeline_steps (
     id TEXT PRIMARY KEY,
-    migration_id TEXT NOT NULL REFERENCES migrations(id) ON DELETE CASCADE,
+    pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT,
     position INTEGER NOT NULL,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS pipeline_steps (
 
 CREATE TABLE IF NOT EXISTS transformations (
     id TEXT PRIMARY KEY,
-    migration_id TEXT NOT NULL REFERENCES migrations(id) ON DELETE CASCADE,
+    pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
     "order" INTEGER NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('column_mapping', 'sql_expression', 'ai_generated')),
     config TEXT NOT NULL,
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS transformations (
 );
 
 CREATE TABLE IF NOT EXISTS pipeline_metadata (
-    migration_id TEXT PRIMARY KEY REFERENCES migrations(id) ON DELETE CASCADE,
+    pipeline_id TEXT PRIMARY KEY REFERENCES pipelines(id) ON DELETE CASCADE,
     validation_status TEXT NOT NULL DEFAULT 'DRAFT'
         CHECK(validation_status IN ('DRAFT', 'VALIDATING', 'VALID', 'INVALID')),
     validated_hash TEXT,
@@ -144,7 +144,7 @@ _PG_SCHEMA_STATEMENTS = [
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )""",
-    """CREATE TABLE IF NOT EXISTS migrations (
+    """CREATE TABLE IF NOT EXISTS pipelines (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         source_connection_id TEXT NOT NULL REFERENCES connections(id),
@@ -164,7 +164,7 @@ _PG_SCHEMA_STATEMENTS = [
     )""",
     """CREATE TABLE IF NOT EXISTS pipeline_steps (
         id TEXT PRIMARY KEY,
-        migration_id TEXT NOT NULL REFERENCES migrations(id) ON DELETE CASCADE,
+        pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         description TEXT,
         position INTEGER NOT NULL,
@@ -175,7 +175,7 @@ _PG_SCHEMA_STATEMENTS = [
     )""",
     """CREATE TABLE IF NOT EXISTS transformations (
         id TEXT PRIMARY KEY,
-        migration_id TEXT NOT NULL REFERENCES migrations(id) ON DELETE CASCADE,
+        pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
         "order" INTEGER NOT NULL,
         type TEXT NOT NULL CHECK(type IN ('column_mapping', 'sql_expression', 'ai_generated')),
         config TEXT NOT NULL,
@@ -183,7 +183,7 @@ _PG_SCHEMA_STATEMENTS = [
         updated_at TEXT NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS pipeline_metadata (
-        migration_id TEXT PRIMARY KEY REFERENCES migrations(id) ON DELETE CASCADE,
+        pipeline_id TEXT PRIMARY KEY REFERENCES pipelines(id) ON DELETE CASCADE,
         validation_status TEXT NOT NULL DEFAULT 'DRAFT'
             CHECK(validation_status IN ('DRAFT', 'VALIDATING', 'VALID', 'INVALID')),
         validated_hash TEXT,
