@@ -1,10 +1,10 @@
 import json
 import pytest
-from vonnegut.pipeline.graph_builder import build_graph_from_migration
+from vonnegut.pipeline.graph_builder import build_graph_from_pipeline
 from vonnegut.pipeline.dag.node import NodeType, SourceNodeConfig, SqlNodeConfig, CodeNodeConfig, TargetNodeConfig
 
 
-def _make_migration() -> dict:
+def _make_pipeline() -> dict:
     return {
         "source_connection_id": "conn1",
         "source_table": "users",
@@ -15,9 +15,9 @@ def _make_migration() -> dict:
     }
 
 
-class TestBuildGraphFromMigration:
+class TestBuildGraphFromPipeline:
     def test_source_only_pipeline(self):
-        graph = build_graph_from_migration(_make_migration(), [])
+        graph = build_graph_from_pipeline(_make_pipeline(), [])
         assert "source" in graph.nodes
         assert "target" in graph.nodes
         assert len(graph.nodes) == 2
@@ -33,7 +33,7 @@ class TestBuildGraphFromMigration:
                 "config": json.dumps({"expression": "SELECT * FROM {prev} WHERE age > 18"}),
             },
         ]
-        graph = build_graph_from_migration(_make_migration(), steps)
+        graph = build_graph_from_pipeline(_make_pipeline(), steps)
         assert len(graph.nodes) == 3
         assert graph.nodes["step1"].type == NodeType.SQL
         assert isinstance(graph.nodes["step1"].config, SqlNodeConfig)
@@ -48,7 +48,7 @@ class TestBuildGraphFromMigration:
                 "config": {"function_code": "def transform(df):\n    return df\n"},
             },
         ]
-        graph = build_graph_from_migration(_make_migration(), steps)
+        graph = build_graph_from_pipeline(_make_pipeline(), steps)
         assert graph.nodes["step1"].type == NodeType.CODE
         assert isinstance(graph.nodes["step1"].config, CodeNodeConfig)
 
@@ -57,7 +57,7 @@ class TestBuildGraphFromMigration:
             {"id": "s1", "step_type": "sql", "config": json.dumps({"expression": "SELECT * FROM {prev}"})},
             {"id": "s2", "step_type": "code", "config": json.dumps({"function_code": "def transform(df):\n    return df\n"})},
         ]
-        graph = build_graph_from_migration(_make_migration(), steps)
+        graph = build_graph_from_pipeline(_make_pipeline(), steps)
         assert len(graph.nodes) == 4
         assert len(graph.edges) == 3
         # Verify chain: source -> s1 -> s2 -> target
@@ -74,7 +74,7 @@ class TestBuildGraphFromMigration:
                 "config": json.dumps({"approved": True, "generated_code": "def transform(df):\n    return df\n"}),
             },
         ]
-        graph = build_graph_from_migration(_make_migration(), steps)
+        graph = build_graph_from_pipeline(_make_pipeline(), steps)
         assert graph.nodes["ai1"].type == NodeType.CODE
 
     def test_unapproved_ai_step_skipped(self):
@@ -85,20 +85,20 @@ class TestBuildGraphFromMigration:
                 "config": json.dumps({"approved": False, "generated_code": "def transform(df):\n    return df\n"}),
             },
         ]
-        graph = build_graph_from_migration(_make_migration(), steps)
+        graph = build_graph_from_pipeline(_make_pipeline(), steps)
         assert "ai1" not in graph.nodes
         assert len(graph.nodes) == 2  # source + target only
 
     def test_source_uses_custom_query(self):
-        mig = _make_migration()
-        mig["source_query"] = "SELECT id, name FROM users WHERE active = true"
-        graph = build_graph_from_migration(mig, [])
+        pipeline = _make_pipeline()
+        pipeline["source_query"] = "SELECT id, name FROM users WHERE active = true"
+        graph = build_graph_from_pipeline(pipeline, [])
         config = graph.nodes["source"].config
         assert isinstance(config, SourceNodeConfig)
         assert config.query == "SELECT id, name FROM users WHERE active = true"
 
     def test_target_truncate_flag(self):
-        graph = build_graph_from_migration(_make_migration(), [])
+        graph = build_graph_from_pipeline(_make_pipeline(), [])
         config = graph.nodes["target"].config
         assert isinstance(config, TargetNodeConfig)
         assert config.truncate is True
@@ -107,5 +107,5 @@ class TestBuildGraphFromMigration:
         steps = [
             {"id": "s1", "step_type": "sql", "config": json.dumps({"expression": "SELECT * FROM {prev}"})},
         ]
-        graph = build_graph_from_migration(_make_migration(), steps)
+        graph = build_graph_from_pipeline(_make_pipeline(), steps)
         graph.validate()  # should not raise

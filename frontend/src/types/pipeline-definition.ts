@@ -1,7 +1,7 @@
 import type { Transformation } from "./transformation";
 import type { PipelineStep, ColumnDef } from "./pipeline";
 
-export type MigrationStatus =
+export type PipelineStatus =
   | "draft"
   | "testing"
   | "running"
@@ -9,7 +9,7 @@ export type MigrationStatus =
   | "failed"
   | "cancelled";
 
-export interface Migration {
+export interface Pipeline {
   id: string;
   name: string;
   source_connection_id: string;
@@ -18,7 +18,7 @@ export interface Migration {
   target_table: string;
   source_query: string;
   source_schema: ColumnDef[];
-  status: MigrationStatus;
+  status: PipelineStatus;
   truncate_target: boolean;
   rows_processed: number | null;
   total_rows: number | null;
@@ -34,7 +34,7 @@ export interface Migration {
   target_description?: string;
 }
 
-export interface MigrationCreate {
+export interface PipelineCreate {
   name: string;
   source_connection_id: string;
   target_connection_id: string;
@@ -45,7 +45,7 @@ export interface MigrationCreate {
   truncate_target?: boolean;
 }
 
-export interface MigrationTestResult {
+export interface PipelineTestResult {
   before: Record<string, unknown>[];
   after: Record<string, unknown>[];
 }

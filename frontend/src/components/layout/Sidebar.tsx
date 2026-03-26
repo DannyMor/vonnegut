@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/connections", label: "Connections", icon: icons.nav_connections },
   { to: "/explorer", label: "Explorer", icon: icons.nav_explorer },
-  { to: "/migrations", label: "Migrations", icon: icons.nav_migrations },
+  { to: "/pipelines", label: "Pipelines", icon: icons.nav_pipelines },
 ];
 
 export function Sidebar() {

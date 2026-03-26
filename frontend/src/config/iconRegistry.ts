@@ -41,7 +41,7 @@ export const icons: Record<string, LucideIcon> = {
   connection_error: CircleX,
   nav_connections: Plug,
   nav_explorer: Search,
-  nav_migrations: Workflow,
+  nav_pipelines: Workflow,
   // Type categories
   type_number: Hash,
   type_text: Type,

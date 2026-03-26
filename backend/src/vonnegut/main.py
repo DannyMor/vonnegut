@@ -10,7 +10,7 @@ from vonnegut.encryption import get_or_create_key
 from vonnegut.adapters.factory import DefaultAdapterFactory
 from vonnegut.repositories import (
     ConnectionRepository,
-    MigrationRepository,
+    PipelineRepository,
     PipelineMetadataRepository,
     PipelineStepRepository,
     TransformationRepository,
@@ -18,7 +18,7 @@ from vonnegut.repositories import (
 from vonnegut.routers.ai import router as ai_router
 from vonnegut.routers.connections import router as connections_router
 from vonnegut.routers.explorer import router as explorer_router
-from vonnegut.routers.migrations import router as migrations_router
+from vonnegut.routers.pipelines import router as pipelines_router
 from vonnegut.routers.pipeline_steps import router as pipeline_steps_router
 from vonnegut.routers.transformations import router as transformations_router
 from vonnegut.services.connection_manager import ConnectionManager
@@ -28,7 +28,7 @@ def _init_repositories(app: FastAPI, db: AppDatabase, encryption_key: str) -> No
     """Initialize all repositories and services on app.state."""
     app.state.db = db
     conn_repo = ConnectionRepository(db)
-    app.state.migration_repo = MigrationRepository(db)
+    app.state.pipeline_repo = PipelineRepository(db)
     app.state.pipeline_metadata_repo = PipelineMetadataRepository(db)
     app.state.pipeline_step_repo = PipelineStepRepository(db)
     app.state.transformation_repo = TransformationRepository(db)
@@ -69,7 +69,7 @@ def create_app(
     app.state.encryption_key = encryption_key or get_or_create_key()
     app.state.settings = settings
     app.state.adapter_factory = adapter_factory or DefaultAdapterFactory()
-    app.state.migration_repo = None
+    app.state.pipeline_repo = None
     app.state.pipeline_metadata_repo = None
     app.state.pipeline_step_repo = None
     app.state.transformation_repo = None
@@ -86,7 +86,7 @@ def create_app(
     app.include_router(ai_router, prefix="/api/v1")
     app.include_router(connections_router, prefix="/api/v1")
     app.include_router(explorer_router, prefix="/api/v1")
-    app.include_router(migrations_router, prefix="/api/v1")
+    app.include_router(pipelines_router, prefix="/api/v1")
     app.include_router(pipeline_steps_router, prefix="/api/v1")
     app.include_router(transformations_router, prefix="/api/v1")
 

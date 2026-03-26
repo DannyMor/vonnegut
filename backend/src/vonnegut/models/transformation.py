@@ -14,7 +14,7 @@ class TransformationUpdate(BaseModel):
 
 class TransformationResponse(BaseModel):
     id: str
-    migration_id: str
+    pipeline_id: str
     order: int
     type: Literal["column_mapping", "sql_expression", "ai_generated"]
     config: dict

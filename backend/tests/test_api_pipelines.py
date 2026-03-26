@@ -1,4 +1,4 @@
-# backend/tests/test_api_migrations.py
+# backend/tests/test_api_pipelines.py
 import json
 
 import pytest
@@ -38,10 +38,10 @@ async def _create_connections(client):
 
 
 @pytest.mark.asyncio
-async def test_create_migration(client):
+async def test_create_pipeline(client):
     src_id, tgt_id = await _create_connections(client)
-    resp = await client.post("/api/v1/migrations", json={
-        "name": "Test Migration",
+    resp = await client.post("/api/v1/pipelines", json={
+        "name": "Test Pipeline",
         "source_connection_id": src_id,
         "target_connection_id": tgt_id,
         "source_table": "users",
@@ -49,70 +49,70 @@ async def test_create_migration(client):
     })
     assert resp.status_code == 201
     data = resp.json()
-    assert data["name"] == "Test Migration"
+    assert data["name"] == "Test Pipeline"
     assert data["status"] == "draft"
 
 
 @pytest.mark.asyncio
-async def test_list_migrations(client):
+async def test_list_pipelines(client):
     src_id, tgt_id = await _create_connections(client)
-    await client.post("/api/v1/migrations", json={
-        "name": "Mig1", "source_connection_id": src_id, "target_connection_id": tgt_id,
+    await client.post("/api/v1/pipelines", json={
+        "name": "Pipeline1", "source_connection_id": src_id, "target_connection_id": tgt_id,
         "source_table": "t1", "target_table": "t2",
     })
-    resp = await client.get("/api/v1/migrations")
+    resp = await client.get("/api/v1/pipelines")
     assert resp.status_code == 200
     assert len(resp.json()) >= 1
 
 
 @pytest.mark.asyncio
-async def test_get_migration(client):
+async def test_get_pipeline(client):
     src_id, tgt_id = await _create_connections(client)
-    create_resp = await client.post("/api/v1/migrations", json={
+    create_resp = await client.post("/api/v1/pipelines", json={
         "name": "Fetch Me", "source_connection_id": src_id, "target_connection_id": tgt_id,
         "source_table": "t1", "target_table": "t2",
     })
-    mig_id = create_resp.json()["id"]
-    resp = await client.get(f"/api/v1/migrations/{mig_id}")
+    pipeline_id = create_resp.json()["id"]
+    resp = await client.get(f"/api/v1/pipelines/{pipeline_id}")
     assert resp.status_code == 200
     assert resp.json()["name"] == "Fetch Me"
     assert resp.json()["transformations"] == []
 
 
 @pytest.mark.asyncio
-async def test_update_migration(client):
+async def test_update_pipeline(client):
     src_id, tgt_id = await _create_connections(client)
-    create_resp = await client.post("/api/v1/migrations", json={
+    create_resp = await client.post("/api/v1/pipelines", json={
         "name": "Old", "source_connection_id": src_id, "target_connection_id": tgt_id,
         "source_table": "t1", "target_table": "t2",
     })
-    mig_id = create_resp.json()["id"]
-    resp = await client.put(f"/api/v1/migrations/{mig_id}", json={"name": "New"})
+    pipeline_id = create_resp.json()["id"]
+    resp = await client.put(f"/api/v1/pipelines/{pipeline_id}", json={"name": "New"})
     assert resp.status_code == 200
     assert resp.json()["name"] == "New"
 
 
 @pytest.mark.asyncio
-async def test_delete_migration(client):
+async def test_delete_pipeline(client):
     src_id, tgt_id = await _create_connections(client)
-    create_resp = await client.post("/api/v1/migrations", json={
+    create_resp = await client.post("/api/v1/pipelines", json={
         "name": "Del", "source_connection_id": src_id, "target_connection_id": tgt_id,
         "source_table": "t1", "target_table": "t2",
     })
-    mig_id = create_resp.json()["id"]
-    resp = await client.delete(f"/api/v1/migrations/{mig_id}")
+    pipeline_id = create_resp.json()["id"]
+    resp = await client.delete(f"/api/v1/pipelines/{pipeline_id}")
     assert resp.status_code == 204
 
 
 @pytest.mark.asyncio
 async def test_run_stream_requires_validation(client):
     src_id, tgt_id = await _create_connections(client)
-    create_resp = await client.post("/api/v1/migrations", json={
+    create_resp = await client.post("/api/v1/pipelines", json={
         "name": "Gated", "source_connection_id": src_id, "target_connection_id": tgt_id,
         "source_table": "t1", "target_table": "t2",
     })
-    mig_id = create_resp.json()["id"]
-    resp = await client.post(f"/api/v1/migrations/{mig_id}/run-stream")
+    pipeline_id = create_resp.json()["id"]
+    resp = await client.post(f"/api/v1/pipelines/{pipeline_id}/run-stream")
     assert resp.status_code == 409
     assert "validated" in resp.json()["detail"].lower()
 
@@ -121,33 +121,33 @@ async def test_run_stream_requires_validation(client):
 async def test_run_stream_allowed_when_valid(app, client):
     """Run-stream should pass the validation gate when metadata is VALID."""
     src_id, tgt_id = await _create_connections(client)
-    create_resp = await client.post("/api/v1/migrations", json={
+    create_resp = await client.post("/api/v1/pipelines", json={
         "name": "Valid Run", "source_connection_id": src_id, "target_connection_id": tgt_id,
         "source_table": "t1", "target_table": "t2",
     })
-    mig_id = create_resp.json()["id"]
+    pipeline_id = create_resp.json()["id"]
 
     # Manually set metadata to VALID
     metadata_repo = app.state.pipeline_metadata_repo
-    await metadata_repo.get_or_create(mig_id)
-    await metadata_repo.update_validation(mig_id, "VALID", validated_hash="abc123")
+    await metadata_repo.get_or_create(pipeline_id)
+    await metadata_repo.update_validation(pipeline_id, "VALID", validated_hash="abc123")
 
     # Should pass the validation gate (will fail later on connection, but not 409)
-    resp = await client.post(f"/api/v1/migrations/{mig_id}/run-stream")
+    resp = await client.post(f"/api/v1/pipelines/{pipeline_id}/run-stream")
     assert resp.status_code != 409
 
 
 @pytest.mark.asyncio
 async def test_validation_endpoint(app, client):
     src_id, tgt_id = await _create_connections(client)
-    create_resp = await client.post("/api/v1/migrations", json={
+    create_resp = await client.post("/api/v1/pipelines", json={
         "name": "Check Validation", "source_connection_id": src_id,
         "target_connection_id": tgt_id,
         "source_table": "t1", "target_table": "t2",
     })
-    mig_id = create_resp.json()["id"]
+    pipeline_id = create_resp.json()["id"]
 
-    resp = await client.get(f"/api/v1/migrations/{mig_id}/validation")
+    resp = await client.get(f"/api/v1/pipelines/{pipeline_id}/validation")
     assert resp.status_code == 200
     data = resp.json()
     assert data["validation_status"] == "DRAFT"

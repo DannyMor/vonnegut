@@ -5,7 +5,7 @@ export type TransformationType =
 
 export interface Transformation {
   id: string;
-  migration_id: string;
+  pipeline_id: string;
   order: number;
   type: TransformationType;
   config: Record<string, unknown>;

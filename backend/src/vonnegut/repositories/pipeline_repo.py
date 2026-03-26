@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from vonnegut.database import AppDatabase
 
 
-class MigrationRepository:
+class PipelineRepository:
     def __init__(self, db: AppDatabase):
         self._db = db
 
@@ -22,27 +22,27 @@ class MigrationRepository:
         source_schema: list[dict] | None = None,
         truncate_target: bool = False,
     ) -> dict:
-        mig_id = str(uuid.uuid4())
+        pipeline_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         await self._db.execute(
-            """INSERT INTO migrations
+            """INSERT INTO pipelines
                (id, name, source_connection_id, target_connection_id, source_table, target_table,
                 source_query, source_schema, status, truncate_target, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)""",
-            (mig_id, name, source_connection_id, target_connection_id,
+            (pipeline_id, name, source_connection_id, target_connection_id,
              source_table, target_table, source_query,
              json.dumps(source_schema or []), int(truncate_target), now, now),
         )
-        return await self.get(mig_id)
+        return await self.get(pipeline_id)
 
-    async def get(self, mig_id: str) -> dict | None:
-        return await self._db.fetch_one("SELECT * FROM migrations WHERE id = ?", (mig_id,))
+    async def get(self, pipeline_id: str) -> dict | None:
+        return await self._db.fetch_one("SELECT * FROM pipelines WHERE id = ?", (pipeline_id,))
 
     async def list_all(self) -> list[dict]:
-        return await self._db.fetch_all("SELECT * FROM migrations ORDER BY created_at DESC")
+        return await self._db.fetch_all("SELECT * FROM pipelines ORDER BY created_at DESC")
 
-    async def update(self, mig_id: str, **fields) -> dict | None:
-        existing = await self.get(mig_id)
+    async def update(self, pipeline_id: str, **fields) -> dict | None:
+        existing = await self.get(pipeline_id)
         if existing is None:
             return None
 
@@ -60,25 +60,25 @@ class MigrationRepository:
 
         now = datetime.now(timezone.utc).isoformat()
         await self._db.execute(
-            """UPDATE migrations
+            """UPDATE pipelines
                SET name=?, source_table=?, target_table=?, source_query=?,
                    source_schema=?, truncate_target=?, updated_at=?
                WHERE id=?""",
             (name, source_table, target_table, source_query,
-             source_schema, truncate_target, now, mig_id),
+             source_schema, truncate_target, now, pipeline_id),
         )
-        return await self.get(mig_id)
+        return await self.get(pipeline_id)
 
-    async def delete(self, mig_id: str) -> bool:
-        existing = await self._db.fetch_one("SELECT id FROM migrations WHERE id = ?", (mig_id,))
+    async def delete(self, pipeline_id: str) -> bool:
+        existing = await self._db.fetch_one("SELECT id FROM pipelines WHERE id = ?", (pipeline_id,))
         if existing is None:
             return False
-        await self._db.execute("DELETE FROM migrations WHERE id = ?", (mig_id,))
+        await self._db.execute("DELETE FROM pipelines WHERE id = ?", (pipeline_id,))
         return True
 
     async def update_status(
         self,
-        mig_id: str,
+        pipeline_id: str,
         status: str,
         rows_processed: int | None = None,
         total_rows: int | None = None,
@@ -87,27 +87,27 @@ class MigrationRepository:
         now = datetime.now(timezone.utc).isoformat()
         if rows_processed is not None and total_rows is not None:
             await self._db.execute(
-                "UPDATE migrations SET status=?, rows_processed=?, total_rows=?, error_message=?, updated_at=? WHERE id=?",
-                (status, rows_processed, total_rows, error_message, now, mig_id),
+                "UPDATE pipelines SET status=?, rows_processed=?, total_rows=?, error_message=?, updated_at=? WHERE id=?",
+                (status, rows_processed, total_rows, error_message, now, pipeline_id),
             )
         elif rows_processed is not None:
             await self._db.execute(
-                "UPDATE migrations SET status=?, rows_processed=?, error_message=?, updated_at=? WHERE id=?",
-                (status, rows_processed, error_message, now, mig_id),
+                "UPDATE pipelines SET status=?, rows_processed=?, error_message=?, updated_at=? WHERE id=?",
+                (status, rows_processed, error_message, now, pipeline_id),
             )
         elif error_message is not None:
             await self._db.execute(
-                "UPDATE migrations SET status=?, error_message=?, updated_at=? WHERE id=?",
-                (status, error_message, now, mig_id),
+                "UPDATE pipelines SET status=?, error_message=?, updated_at=? WHERE id=?",
+                (status, error_message, now, pipeline_id),
             )
         else:
             await self._db.execute(
-                "UPDATE migrations SET status=?, updated_at=? WHERE id=?",
-                (status, now, mig_id),
+                "UPDATE pipelines SET status=?, updated_at=? WHERE id=?",
+                (status, now, pipeline_id),
             )
 
-    async def get_status(self, mig_id: str) -> dict | None:
+    async def get_status(self, pipeline_id: str) -> dict | None:
         return await self._db.fetch_one(
-            "SELECT status, rows_processed, total_rows, error_message FROM migrations WHERE id = ?",
-            (mig_id,),
+            "SELECT status, rows_processed, total_rows, error_message FROM pipelines WHERE id = ?",
+            (pipeline_id,),
         )

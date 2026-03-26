@@ -6,7 +6,7 @@ async def test_database_initializes_tables(db):
     tables = await db.fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
     table_names = {row["name"] for row in tables}
     assert "connections" in table_names
-    assert "migrations" in table_names
+    assert "pipelines" in table_names
     assert "transformations" in table_names
 
 

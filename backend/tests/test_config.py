@@ -6,8 +6,8 @@ def test_default_settings():
     settings = Settings()
     assert settings.database_url == "sqlite+aiosqlite:///./vonnegut.db"
     assert settings.cors_origins == ["http://localhost:5173", "http://localhost:5174"]
-    assert settings.migration_row_limit == 100_000
-    assert settings.migration_batch_size == 1000
+    assert settings.pipeline_row_limit == 100_000
+    assert settings.pipeline_batch_size == 1000
 
 
 def test_custom_settings_from_env(monkeypatch):

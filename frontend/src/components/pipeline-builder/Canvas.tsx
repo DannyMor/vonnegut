@@ -10,11 +10,11 @@ import { SourceNode } from "./nodes/SourceNode";
 import { TargetNode } from "./nodes/TargetNode";
 import { PipelineNode } from "./nodes/PipelineNode";
 import { AddStepEdge } from "./edges/AddStepEdge";
-import type { Migration } from "@/types/migration";
+import type { Pipeline } from "@/types/pipeline-definition";
 import type { StepType, StepResult } from "@/types/pipeline";
 
 interface Props {
-  migration: Migration;
+  pipeline: Pipeline;
   testResults: StepResult[] | null;
   selectedNodeId: string | null;
   panelOpen: boolean;
@@ -28,8 +28,8 @@ const NODE_SPACING = 350;
 const CENTER_Y = 150;
 const FIT_OPTIONS = { padding: 0.5, maxZoom: 0.85, duration: 200 };
 
-function buildNodeData(migration: Migration, testResults: StepResult[] | null, selectedNodeId: string | null, onDeleteStep: (id: string) => void): Node[] {
-  const steps = migration.pipeline_steps || [];
+function buildNodeData(pipeline: Pipeline, testResults: StepResult[] | null, selectedNodeId: string | null, onDeleteStep: (id: string) => void): Node[] {
+  const steps = pipeline.pipeline_steps || [];
   const result: Node[] = [];
 
   result.push({
@@ -39,9 +39,9 @@ function buildNodeData(migration: Migration, testResults: StepResult[] | null, s
     selected: selectedNodeId === "source",
     data: {
       connectionName: "",
-      table: migration.source_table || "Not configured",
-      schemaCount: migration.source_schema?.length || null,
-      label: migration.source_label,
+      table: pipeline.source_table || "Not configured",
+      schemaCount: pipeline.source_schema?.length || null,
+      label: pipeline.source_label,
     },
   });
 
@@ -75,10 +75,10 @@ function buildNodeData(migration: Migration, testResults: StepResult[] | null, s
     selected: selectedNodeId === "target",
     data: {
       connectionName: "",
-      table: migration.target_table || "Not configured",
+      table: pipeline.target_table || "Not configured",
       schemaCount: null,
       validationStatus: targetValidation,
-      label: migration.target_label,
+      label: pipeline.target_label,
     },
   });
 
@@ -97,7 +97,7 @@ function centerAlignNodes(nodes: Node[]): Node[] {
 }
 
 function CanvasInner({
-  migration, testResults, selectedNodeId, panelOpen,
+  pipeline, testResults, selectedNodeId, panelOpen,
   onNodeClick, onCanvasClick, onAddStep, onDeleteStep,
 }: Props) {
   const nodeTypes: NodeTypes = useMemo(() => ({
@@ -110,7 +110,7 @@ function CanvasInner({
     addStep: AddStepEdge,
   }), []);
 
-  const steps = migration.pipeline_steps || [];
+  const steps = pipeline.pipeline_steps || [];
   const { fitView, getNodes } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
 
@@ -120,7 +120,7 @@ function CanvasInner({
   const [autoFit, setAutoFit] = useState(true);
 
   const [nodes, setNodes] = useState<Node[]>(() =>
-    buildNodeData(migration, testResults, selectedNodeId, onDeleteStep)
+    buildNodeData(pipeline, testResults, selectedNodeId, onDeleteStep)
   );
 
   const doFitView = useCallback(() => {
@@ -150,19 +150,19 @@ function CanvasInner({
     if (nodeIdKey !== prevNodeIdKeyRef.current) {
       prevNodeIdKeyRef.current = nodeIdKey;
       hasCenterAlignedRef.current = false;
-      setNodes(buildNodeData(migration, testResults, selectedNodeId, onDeleteStep));
+      setNodes(buildNodeData(pipeline, testResults, selectedNodeId, onDeleteStep));
     }
-  }, [nodeIdKey, migration, testResults, selectedNodeId, onDeleteStep]);
+  }, [nodeIdKey, pipeline, testResults, selectedNodeId, onDeleteStep]);
 
   // When data changes (but not structure), update data + selected without resetting positions
   useEffect(() => {
-    const freshNodes = buildNodeData(migration, testResults, selectedNodeId, onDeleteStep);
+    const freshNodes = buildNodeData(pipeline, testResults, selectedNodeId, onDeleteStep);
     setNodes(prev => prev.map(n => {
       const fresh = freshNodes.find(f => f.id === n.id);
       if (!fresh) return n;
       return { ...n, data: fresh.data, selected: fresh.selected };
     }));
-  }, [migration, testResults, selectedNodeId, onDeleteStep]);
+  }, [pipeline, testResults, selectedNodeId, onDeleteStep]);
 
   // Re-fit when the bottom panel opens or closes (canvas size changes)
   const prevPanelOpenRef = useRef(panelOpen);
@@ -181,13 +181,13 @@ function CanvasInner({
 
   const handleAutoAlign = useCallback(() => {
     const measured = getNodes();
-    const fresh = buildNodeData(migration, testResults, selectedNodeId, onDeleteStep).map(n => {
+    const fresh = buildNodeData(pipeline, testResults, selectedNodeId, onDeleteStep).map(n => {
       const m = measured.find(mn => mn.id === n.id);
       return m?.measured ? { ...n, measured: m.measured } : n;
     });
     setNodes(centerAlignNodes(fresh));
     doFitView();
-  }, [migration, testResults, selectedNodeId, onDeleteStep, doFitView, getNodes]);
+  }, [pipeline, testResults, selectedNodeId, onDeleteStep, doFitView, getNodes]);
 
   const edges: Edge[] = useMemo(() => {
     const result: Edge[] = [];

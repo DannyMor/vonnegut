@@ -5,12 +5,12 @@ from pydantic import BaseModel, field_validator
 from vonnegut.models.pipeline import PipelineStepResponse
 from vonnegut.models.transformation import TransformationResponse
 
-MigrationStatusType = Literal[
+PipelineStatusType = Literal[
     "draft", "testing", "running", "completed", "failed", "cancelled"
 ]
 
 
-class MigrationCreate(BaseModel):
+class PipelineCreate(BaseModel):
     name: str
     source_connection_id: str
     target_connection_id: str
@@ -26,7 +26,7 @@ class MigrationCreate(BaseModel):
         return v.strip() if isinstance(v, str) else v
 
 
-class MigrationUpdate(BaseModel):
+class PipelineUpdate(BaseModel):
     name: str | None = None
     source_table: str | None = None
     target_table: str | None = None
@@ -40,7 +40,7 @@ class MigrationUpdate(BaseModel):
         return v.strip() if isinstance(v, str) else v
 
 
-class MigrationResponse(BaseModel):
+class PipelineResponse(BaseModel):
     id: str
     name: str
     source_connection_id: str
@@ -49,7 +49,7 @@ class MigrationResponse(BaseModel):
     target_table: str
     source_query: str = ""
     source_schema: list[dict] = []
-    status: MigrationStatusType
+    status: PipelineStatusType
     truncate_target: bool
     rows_processed: int | None
     total_rows: int | None

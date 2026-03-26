@@ -4,8 +4,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { HomePage } from "@/pages/HomePage";
 import { ConnectionsPage } from "@/pages/ConnectionsPage";
 import { ExplorerPage } from "@/pages/ExplorerPage";
-import { MigrationsListPage } from "@/pages/MigrationsListPage";
-import { MigrationBuilderPage } from "@/pages/MigrationBuilderPage";
+import { PipelinesListPage } from "@/pages/PipelinesListPage";
+import { PipelineBuilderPage } from "@/pages/PipelineBuilderPage";
 
 export default function App() {
   return (
@@ -18,8 +18,8 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/connections" element={<ConnectionsPage />} />
               <Route path="/explorer" element={<ExplorerPage />} />
-              <Route path="/migrations" element={<MigrationsListPage />} />
-              <Route path="/migrations/:id" element={<MigrationBuilderPage />} />
+              <Route path="/pipelines" element={<PipelinesListPage />} />
+              <Route path="/pipelines/:id" element={<PipelineBuilderPage />} />
             </Routes>
           </main>
         </div>

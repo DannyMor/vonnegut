@@ -55,7 +55,7 @@ def test_reorder_request():
 def test_transformation_response():
     t = TransformationResponse(
         id="t-1",
-        migration_id="mig-1",
+        pipeline_id="pipeline-1",
         order=0,
         type="sql_expression",
         config={"expression": "UPPER(name)", "output_column": "name_upper"},

@@ -53,7 +53,7 @@ class PipelineStepUpdate(BaseModel):
 
 class PipelineStepResponse(BaseModel):
     id: str
-    migration_id: str
+    pipeline_id: str
     name: str
     description: str | None
     position: int

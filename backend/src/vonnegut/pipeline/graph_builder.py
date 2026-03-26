@@ -1,4 +1,4 @@
-"""Convert existing migration + pipeline_steps data into PipelineGraph."""
+"""Convert existing pipeline + pipeline_steps data into PipelineGraph."""
 from __future__ import annotations
 import json
 
@@ -14,14 +14,14 @@ from vonnegut.pipeline.dag.edge import Edge
 from vonnegut.pipeline.dag.graph import PipelineGraph
 
 
-def build_graph_from_migration(
-    mig: dict,
+def build_graph_from_pipeline(
+    pipeline: dict,
     steps: list[dict],
 ) -> PipelineGraph:
-    """Build a PipelineGraph from migration row and pipeline_steps rows.
+    """Build a PipelineGraph from pipeline row and pipeline_steps rows.
 
     Args:
-        mig: Migration row dict with source_connection_id, source_table,
+        pipeline: Pipeline row dict with source_connection_id, source_table,
              source_query, target_connection_id, target_table, truncate_target.
         steps: List of pipeline step dicts, each with id, step_type, config.
     """
@@ -29,13 +29,13 @@ def build_graph_from_migration(
     edges: list[Edge] = []
 
     # Source node
-    source_query = mig.get("source_query") or f"SELECT * FROM {mig['source_table']}"
+    source_query = pipeline.get("source_query") or f"SELECT * FROM {pipeline['source_table']}"
     nodes["source"] = Node(
         id="source",
         type=NodeType.SOURCE,
         config=SourceNodeConfig(
-            connection_id=mig["source_connection_id"],
-            table=mig["source_table"],
+            connection_id=pipeline["source_connection_id"],
+            table=pipeline["source_table"],
             query=source_query,
         ),
     )
@@ -79,9 +79,9 @@ def build_graph_from_migration(
         id="target",
         type=NodeType.TARGET,
         config=TargetNodeConfig(
-            connection_id=mig["target_connection_id"],
-            table=mig["target_table"],
-            truncate=bool(mig.get("truncate_target")),
+            connection_id=pipeline["target_connection_id"],
+            table=pipeline["target_table"],
+            truncate=bool(pipeline.get("truncate_target")),
         ),
     )
     edges.append(

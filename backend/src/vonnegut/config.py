@@ -9,5 +9,5 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5174"]
     secret_key: str | None = None
     anthropic_api_key: str | None = None
-    migration_row_limit: int = 100_000
-    migration_batch_size: int = 1000
+    pipeline_row_limit: int = 100_000
+    pipeline_batch_size: int = 1000

@@ -3,16 +3,16 @@ import { RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { CodeEditor, languageForConnection } from "@/components/ui/code-editor";
-import type { Migration } from "@/types/migration";
+import type { Pipeline } from "@/types/pipeline-definition";
 import type { Connection } from "@/types/connection";
 
 interface Props {
-  migration: Migration;
+  pipeline: Pipeline;
   connections: Connection[];
-  onUpdate: (updates: Partial<Migration>) => void;
+  onUpdate: (updates: Partial<Pipeline>) => void;
 }
 
-export function SourceEditor({ migration, connections, onUpdate }: Props) {
+export function SourceEditor({ pipeline, connections, onUpdate }: Props) {
   const [tables, setTables] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -22,8 +22,8 @@ export function SourceEditor({ migration, connections, onUpdate }: Props) {
   );
 
   const sourceConnection = useMemo(
-    () => connections.find((c) => c.id === migration.source_connection_id) ?? null,
-    [connections, migration.source_connection_id],
+    () => connections.find((c) => c.id === pipeline.source_connection_id) ?? null,
+    [connections, pipeline.source_connection_id],
   );
 
   const sqlLanguage = useMemo(
@@ -39,17 +39,17 @@ export function SourceEditor({ migration, connections, onUpdate }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!migration.source_connection_id) return;
-    loadTables(migration.source_connection_id);
-  }, [migration.source_connection_id, loadTables]);
+    if (!pipeline.source_connection_id) return;
+    loadTables(pipeline.source_connection_id);
+  }, [pipeline.source_connection_id, loadTables]);
 
   const handleConnectionChange = (connId: string) => {
     onUpdate({ source_connection_id: connId, source_table: "", source_query: "", source_schema: [] });
   };
 
   const handleTableChange = async (table: string) => {
-    if (migration.source_connection_id && table) {
-      const schema = await api.connections.schema(migration.source_connection_id, table);
+    if (pipeline.source_connection_id && table) {
+      const schema = await api.connections.schema(pipeline.source_connection_id, table);
       const columns = schema.map((c) => c.name).join(", ");
       const query = `SELECT ${columns} FROM ${table}`;
       onUpdate({
@@ -68,7 +68,7 @@ export function SourceEditor({ migration, connections, onUpdate }: Props) {
         <label className="text-xs font-medium text-muted-foreground block mb-1">Connection</label>
         <SearchableSelect
           options={connectionOptions}
-          value={migration.source_connection_id}
+          value={pipeline.source_connection_id}
           onChange={handleConnectionChange}
           placeholder="Search connections..."
         />
@@ -77,10 +77,10 @@ export function SourceEditor({ migration, connections, onUpdate }: Props) {
       <div className="shrink-0">
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium text-muted-foreground">Table</label>
-          {migration.source_connection_id && (
+          {pipeline.source_connection_id && (
             <button
               type="button"
-              onClick={() => loadTables(migration.source_connection_id, true)}
+              onClick={() => loadTables(pipeline.source_connection_id, true)}
               disabled={loading}
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
             >
@@ -91,10 +91,10 @@ export function SourceEditor({ migration, connections, onUpdate }: Props) {
         </div>
         <SearchableSelect
           items={tables}
-          value={migration.source_table}
+          value={pipeline.source_table}
           onChange={handleTableChange}
           placeholder="Search tables..."
-          disabled={!migration.source_connection_id}
+          disabled={!pipeline.source_connection_id}
           loading={loading}
         />
       </div>
@@ -102,7 +102,7 @@ export function SourceEditor({ migration, connections, onUpdate }: Props) {
       <div className="flex flex-col flex-1 min-h-0">
         <label className="text-xs font-medium text-muted-foreground block mb-1 shrink-0">Source Query</label>
         <CodeEditor
-          value={migration.source_query}
+          value={pipeline.source_query}
           onChange={(v) => onUpdate({ source_query: v })}
           language={sqlLanguage}
           placeholder="SELECT col1, col2 FROM table"

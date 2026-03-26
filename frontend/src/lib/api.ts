@@ -1,5 +1,5 @@
 import type { Connection, ConnectionCreate, ConnectionTestResult, ColumnSchema } from "@/types/connection";
-import type { Migration, MigrationCreate } from "@/types/migration";
+import type { Pipeline, PipelineCreate } from "@/types/pipeline-definition";
 import type { PipelineStep, PipelineStepCreate, PipelineStepUpdate, PipelineTestResult } from "@/types/pipeline";
 import type {
   Transformation,
@@ -56,20 +56,20 @@ export const api = {
       request<string[]>("/connections/discover-databases", { method: "POST", body: JSON.stringify(data) }),
   },
 
-  migrations: {
-    list: () => request<Migration[]>("/migrations"),
-    get: (id: string) => request<Migration>(`/migrations/${id}`),
-    create: (data: MigrationCreate) =>
-      request<Migration>("/migrations", { method: "POST", body: JSON.stringify(data) }),
-    update: (id: string, data: Partial<MigrationCreate>) =>
-      request<Migration>(`/migrations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  pipelines: {
+    list: () => request<Pipeline[]>("/pipelines"),
+    get: (id: string) => request<Pipeline>(`/pipelines/${id}`),
+    create: (data: PipelineCreate) =>
+      request<Pipeline>("/pipelines", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<PipelineCreate>) =>
+      request<Pipeline>(`/pipelines/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (id: string) =>
-      request<void>(`/migrations/${id}`, { method: "DELETE" }),
+      request<void>(`/pipelines/${id}`, { method: "DELETE" }),
     test: (id: string) =>
-      request<PipelineTestResult>(`/migrations/${id}/test`, { method: "POST" }),
+      request<PipelineTestResult>(`/pipelines/${id}/test`, { method: "POST" }),
     testStream: (id: string, onEvent: (event: Record<string, unknown>) => void): { abort: () => void } => {
       const controller = new AbortController();
-      fetch(`${BASE}/migrations/${id}/test-stream`, {
+      fetch(`${BASE}/pipelines/${id}/test-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -105,7 +105,7 @@ export const api = {
     },
     runStream: (id: string, onEvent: (event: Record<string, unknown>) => void): { abort: () => void } => {
       const controller = new AbortController();
-      fetch(`${BASE}/migrations/${id}/run-stream`, {
+      fetch(`${BASE}/pipelines/${id}/run-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -140,39 +140,39 @@ export const api = {
       return { abort: () => controller.abort() };
     },
     validation: (id: string) =>
-      request<{ migration_id: string; validation_status: string; validated_hash: string | null; last_validated_at: string | null }>(
-        `/migrations/${id}/validation`
+      request<{ pipeline_id: string; validation_status: string; validated_hash: string | null; last_validated_at: string | null }>(
+        `/pipelines/${id}/validation`
       ),
   },
 
   transformations: {
-    add: (migrationId: string, data: TransformationCreate) =>
-      request<Transformation>(`/migrations/${migrationId}/transformations`, {
+    add: (pipelineId: string, data: TransformationCreate) =>
+      request<Transformation>(`/pipelines/${pipelineId}/transformations`, {
         method: "POST", body: JSON.stringify(data),
       }),
-    update: (migrationId: string, id: string, data: { config: Record<string, unknown> }) =>
-      request<Transformation>(`/migrations/${migrationId}/transformations/${id}`, {
+    update: (pipelineId: string, id: string, data: { config: Record<string, unknown> }) =>
+      request<Transformation>(`/pipelines/${pipelineId}/transformations/${id}`, {
         method: "PUT", body: JSON.stringify(data),
       }),
-    delete: (migrationId: string, id: string) =>
-      request<void>(`/migrations/${migrationId}/transformations/${id}`, { method: "DELETE" }),
-    reorder: (migrationId: string, order: string[]) =>
-      request<{ status: string }>(`/migrations/${migrationId}/transformations/reorder`, {
+    delete: (pipelineId: string, id: string) =>
+      request<void>(`/pipelines/${pipelineId}/transformations/${id}`, { method: "DELETE" }),
+    reorder: (pipelineId: string, order: string[]) =>
+      request<{ status: string }>(`/pipelines/${pipelineId}/transformations/reorder`, {
         method: "PUT", body: JSON.stringify({ order }),
       }),
   },
 
   pipelineSteps: {
-    add: (migrationId: string, data: PipelineStepCreate) =>
-      request<PipelineStep>(`/migrations/${migrationId}/steps`, {
+    add: (pipelineId: string, data: PipelineStepCreate) =>
+      request<PipelineStep>(`/pipelines/${pipelineId}/steps`, {
         method: "POST", body: JSON.stringify(data),
       }),
-    update: (migrationId: string, stepId: string, data: PipelineStepUpdate) =>
-      request<PipelineStep>(`/migrations/${migrationId}/steps/${stepId}`, {
+    update: (pipelineId: string, stepId: string, data: PipelineStepUpdate) =>
+      request<PipelineStep>(`/pipelines/${pipelineId}/steps/${stepId}`, {
         method: "PUT", body: JSON.stringify(data),
       }),
-    delete: (migrationId: string, stepId: string) =>
-      request<void>(`/migrations/${migrationId}/steps/${stepId}`, { method: "DELETE" }),
+    delete: (pipelineId: string, stepId: string) =>
+      request<void>(`/pipelines/${pipelineId}/steps/${stepId}`, { method: "DELETE" }),
   },
 
   ai: {
